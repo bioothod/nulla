@@ -33,9 +33,6 @@
     "application": {
 	"remotes": [
 		"localhost:1026:2"
-	],
-	"metadata-groups": [
-	    1,2
 	]
     }
 }
