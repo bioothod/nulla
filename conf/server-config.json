@@ -33,6 +33,10 @@
     "application": {
 	"remotes": [
 		"localhost:1026:2"
-	]
+	],
+	"buckets": [
+		"b1"
+	],
+	"metadata-groups": [1,2]
     }
 }
