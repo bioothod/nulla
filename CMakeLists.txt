@@ -17,9 +17,10 @@ include(cmake/locate_library.cmake)
 LOCATE_LIBRARY(THEVOID "thevoid/server.hpp" "thevoid")
 LOCATE_LIBRARY(SWARM "swarm/http_response.hpp" "swarm")
 LOCATE_LIBRARY(MSGPACK "msgpack.hpp" "msgpack")
+LOCATE_LIBRARY(GPAC "gpac/isomedia.h" "gpac")
 LOCATE_HEADERS(EBUCKET "ebucket/bucket.hpp")
 
-find_package(Boost COMPONENTS system thread filesystem REQUIRED)
+find_package(Boost COMPONENTS system thread filesystem program_options REQUIRED)
 find_package(Elliptics REQUIRED)
 
 include_directories(
@@ -27,6 +28,7 @@ include_directories(
 	${Boost_INCLUDE_DIRS}
 	${EBUCKET_INCLUDE_DIRS}
 	${ELLIPTICS_INCLUDE_DIRS}
+	${GPAC_INCLUDE_DIRS}
 	${MSGPACK_INCLUDE_DIRS}
 	${SWARM_INCLUDE_DIRS}
 	${THEVOID_INCLUDE_DIRS}
@@ -36,6 +38,7 @@ link_directories(
 	${Boost_LIBRARY_DIRS}
 	${EBUCKET_LIBRARY_DIRS}
 	${ELLIPTICS_LIBRARY_DIRS}
+	${GPAC_LIBRARY_DIRS}
 	${MSGPACK_LIBRARY_DIRS}
 	${THEVOID_LIBRARY_DIRS}
 )

@@ -15,6 +15,8 @@
  */
 
 #include "nulla/asio.hpp"
+#include "nulla/iso_reader.hpp"
+#include "nulla/iso_writer.hpp"
 
 #include <ebucket/bucket_processor.hpp>
 
@@ -165,7 +167,13 @@ public:
 
 		bool init = req.url().query().has_item("init");
 
-		NLOG_INFO("%s: bucket: %s, key: %s, init: %d", __func__, bname, key, init);
+		int time = -1;
+		auto boost_time = req.url().query().item_value("time");
+		if (boost_time) {
+			time = atoi(boost_time->c_str());
+		}
+
+		NLOG_INFO("%s: bucket: %s, key: %s, init: %d, time: %d", __func__, bname, key, init, time);
 
 		ebucket::bucket b;
 		elliptics::error_info err = this->server()->bucket_processor()->find_bucket(bname, b);
@@ -176,12 +184,23 @@ public:
 			return;
 		}
 
-		elliptics::session s = b->session();
+		m_session.reset(new elliptics::session(b->session()));
 
 		if (init) {
-			s.read_data(key, 0, 0).connect(std::bind(&on_dash_stream_base::on_read,
+			m_session->read_data(key, 0, 0).connect(std::bind(&on_dash_stream_base::on_read,
 				this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
 			return;
+		} else if (time == -1) {
+			NLOG_ERROR("url: %s: this is neither init nor data request", req.url().to_human_readable());
+			this->send_reply(thevoid::http_response::bad_request);
+			return;
+		}
+
+		if (m_media.tracks.size() == 0) {
+			m_session->read_data(key + ".meta", 0, 0).connect(std::bind(&on_dash_stream_base::on_read_meta,
+						this->shared_from_this(), key, time, std::placeholders::_1, std::placeholders::_2));
+		} else {
+			request_track_data(key, time);
 		}
 	}
 
@@ -213,6 +232,129 @@ public:
 		this->send_headers(std::move(reply), std::move(file),
 				std::bind(&on_dash_stream_base::close, this->shared_from_this(), std::placeholders::_1));
 	}
+
+	void on_read_meta(std::string &key, int time, const elliptics::sync_read_result &result, const elliptics::error_info &error)
+	{
+		if (error) {
+			NLOG_ERROR("buffered-get: %s: url: %s: error: %s",
+					__func__, this->request().url().to_human_readable(), error.message());
+
+			auto ec = boost::system::errc::make_error_code(static_cast<boost::system::errc::errc_t>(-error.code()));
+			this->close(ec);
+			return;
+		}
+
+		const elliptics::read_result_entry &entry = result[0];
+		const elliptics::data_pointer &file = entry.file();
+
+		try {
+			msgpack::unpacked result;
+			msgpack::unpack(&result, file.data<char>(), file.size());
+			
+			msgpack::object deserialized = result.get();
+			deserialized.convert(&m_media);
+		} catch (const std::exception &e) {
+			NLOG_ERROR("buffered-get: %s: url: %s: meta unpack error: %s",
+					__func__, this->request().url().to_human_readable(), e.what());
+			this->send_reply(thevoid::http_response::internal_server_error);
+			return;
+		}
+
+		request_track_data(key, time);
+	}
+
+	void on_read_samples(nulla::writer_options &opt, const elliptics::sync_read_result &result, const elliptics::error_info &error) {
+		if (error) {
+			NLOG_ERROR("buffered-get: %s: url: %s: error: %s",
+					__func__, this->request().url().to_human_readable(), error.message());
+
+			auto ec = boost::system::errc::make_error_code(static_cast<boost::system::errc::errc_t>(-error.code()));
+			this->close(ec);
+			return;
+		}
+
+		const elliptics::read_result_entry &entry = result[0];
+		const elliptics::data_pointer &sample_data = entry.file();
+
+		opt.sample_data = sample_data.data<char>();
+		opt.sample_data_size = sample_data.size();
+
+		std::vector<char> movie_data;
+		nulla::iso_writer writer(m_media.tracks[0]);
+		int err = writer.create(opt, movie_data);
+		if (err < 0) {
+			NLOG_ERROR("buffered-get: %s: url: %s: writer creation error: %d",
+					__func__, this->request().url().to_human_readable(), err);
+
+			auto ec = boost::system::errc::make_error_code(static_cast<boost::system::errc::errc_t>(err));
+			this->close(ec);
+			return;
+		}
+
+		thevoid::http_response reply;
+		reply.set_code(swarm::http_response::ok);
+		reply.headers().set_content_length(movie_data.size());
+		reply.headers().set("Access-Control-Allow-Credentials", "true");
+		reply.headers().set("Access-Control-Allow-Origin", "*");
+
+		this->send_headers(std::move(reply), std::move(movie_data),
+				std::bind(&on_dash_stream_base::close, this->shared_from_this(), std::placeholders::_1));
+	}
+
+	void request_track_data(std::string &key, int time) {
+		const nulla::track &track = m_media.tracks[0];
+
+		u64 dtime_start = time * track.timescale;
+		u64 time_end = time + 10;
+		u64 dtime_end = time_end * track.timescale;
+
+
+		ssize_t pos_start = track.sample_position_from_dts(dtime_start);
+		if (pos_start < 0) {
+			NLOG_ERROR("buffered-get: %s: url: %s: error: start offset is out of range, track_id: %d, track_number: %d, "
+					"dtime_start: %d, time: %d: %d",
+					__func__, this->request().url().to_human_readable(), track.id, track.number,
+					dtime_start, time, pos_start);
+
+			auto ec = boost::system::errc::make_error_code(static_cast<boost::system::errc::errc_t>(pos_start));
+			this->close(ec);
+			return;
+		}
+
+		ssize_t pos_end = track.sample_position_from_dts(dtime_end);
+		if (pos_end < 0) {
+			pos_end = track.samples.size() - 1;
+		}
+
+		u64 start_offset = track.samples[pos_start].offset;
+		u64 end_offset = track.samples[pos_end].offset + track.samples[pos_end].length;
+
+		NLOG_INFO("buffered-get: %s: url: %s: track_id: %d, track_number: %d, samples: [%d, %d): "
+				"timescale: %d, duration: %d, "
+				"dtime: [%d, %d), time: [%d, %d), data-bytes: [%d, %d)",
+				__func__, this->request().url().to_human_readable(), track.id, track.number,
+				pos_start, pos_end,
+				track.timescale, track.duration,
+				dtime_start, dtime_end, time, time_end, start_offset, end_offset);
+
+		nulla::writer_options opt;
+		opt.pos_start = pos_start;
+		opt.pos_end = pos_end;
+		opt.dts_start = dtime_start;
+		opt.dts_end = dtime_end;
+		opt.fragment_duration = 1 * track.timescale; // 1 second
+		opt.dts_start_absolute = 0;
+
+		m_session->read_data(key, start_offset, end_offset - start_offset).connect(
+				std::bind(&on_dash_stream_base::on_read_samples,
+					this->shared_from_this(), opt, std::placeholders::_1, std::placeholders::_2));
+	}
+
+
+private:
+	std::unique_ptr<elliptics::session> m_session;
+	elliptics::key m_key;
+	nulla::media m_media;
 };
 
 template <typename Server>
