@@ -84,8 +84,11 @@ public:
 
 		elliptics::error_info err = parse_manifest_request(buffer);
 		if (err) {
-			NLOG_ERROR("url: %s: could not parse manifest request: %s [%d]",
-					req.url().to_human_readable().c_str(), err.message().c_str(), err.code());
+			NLOG_ERROR("url: %s: could not parse manifest request: %.*s, error: %s [%d]",
+					req.url().to_human_readable().c_str(),
+					(int)boost::asio::buffer_size(buffer),
+					boost::asio::buffer_cast<const unsigned char*>(buffer),
+					err.message().c_str(), err.code());
 			this->send_reply(thevoid::http_response::bad_request);
 			return;
 		}
@@ -126,12 +129,6 @@ public:
 private:
 	nulla::playlist_t m_playlist;
 
-	std::string generate_manifest() {
-		nulla::mpd mpd(m_playlist);
-		mpd.generate();
-		return mpd.xml();
-	}
-
 	void update_periods() {
 		BOOST_FOREACH(nulla::period &p, m_playlist->periods) {
 			BOOST_FOREACH(nulla::adaptation &a, p.adaptations) {
@@ -157,21 +154,23 @@ private:
 			update_periods();
 
 			std::string cookie = this->server()->store_playlist(m_playlist);
-			m_playlist->base_url = "http://" + this->request().local_endpoint() + "/" + cookie + "/";
+			//m_playlist->base_url = "http://" + this->request().local_endpoint() + "/" + cookie + "/";
+			m_playlist->base_url = "http://localhost:8080/stream/" + cookie + "/";
 
-			std::string manifest = generate_manifest();
-			send_manifest(manifest);
+			send_manifest();
 		}
 	}
 
-	void send_manifest(const std::string &manifest) {
+	void send_manifest() {
+		std::string url = m_playlist->base_url + "manifest";
+
 		thevoid::http_response reply;
 		reply.set_code(swarm::http_response::ok);
-		reply.headers().set_content_length(manifest.size());
+		reply.headers().set_content_length(url.size());
 		reply.headers().set("Access-Control-Allow-Credentials", "true");
 		reply.headers().set("Access-Control-Allow-Origin", "*");
 
-		this->send_headers(std::move(reply), std::move(manifest),
+		this->send_headers(std::move(reply), std::move(url),
 				std::bind(&on_dash_manifest_base::close, this->shared_from_this(), std::placeholders::_1));
 	}
 
@@ -425,10 +424,18 @@ private:
 
 					if (tr.duration_msec > duration_msec)
 						tr.duration_msec = duration_msec;
+
+					tr.requested_track_index = std::distance(tr.media.tracks.begin(), it);
 				}
 			}
 		} catch (const std::exception &e) {
 			return elliptics::create_error(-EINVAL, "meta unpack error: %s", e.what());
+		}
+
+		if (tr.requested_track_index == -1) {
+			return elliptics::create_error(-ENOENT,
+				"meta unpack has failed to locate requested track number %d among all received tracks",
+				tr.requested_track_number);
 		}
 
 		return elliptics::error_info();
@@ -447,44 +454,71 @@ public:
 	void on_request(const thevoid::http_request &req, const boost::asio::const_buffer &buffer) {
 		(void) buffer;
 
-		if (!this->server()->check_bucket_key(req)) {
-			this->send_reply(thevoid::http_response::bad_request);
-			return;
-		}
-
 		// url format: http://host[:port]/prefix/playlist_id/repr/type
 		// where @prefix matches thevoid handler name registered in the @Server
 		// and @playlist_id is a string
 
 		const auto &path = req.url().path_components();
-		if (path.size() < 4) {
-			NLOG_ERROR("url: %s: invalid path, there must be at least 4 path components: /stream/playlist_id/repr/type",
+		if (path.size() < 3) {
+			NLOG_ERROR("url: %s: invalid path, there must be at least 3 path components: /stream/playlist_id/operation[/repr]",
 					req.url().to_human_readable().c_str());
 			this->send_reply(thevoid::http_response::bad_request);
 			return;
 		}
 
 		std::string playlist_id = path[1];
-		std::string repr_id = path[2];
-		std::string type = path[3];
+		std::string operation = path[2];
 
-		if (playlist_id.empty() || repr_id.empty() || type.empty()) {
-			NLOG_ERROR("url: %s: invalid path, there must be at least 4 path components in the path "
-					"/stream/playlist_id/repr/type and none is allowed to be empty",
+		if (playlist_id.empty() || operation.empty()) {
+			NLOG_ERROR("url: %s: invalid path, there must be at least 3 path components in the path "
+					"/stream/playlist_id/operation[/repr] and none is allowed to be empty",
 					req.url().to_human_readable().c_str());
 			this->send_reply(thevoid::http_response::bad_request);
 			return;
 		}
 
-		auto playlist = this->server()->get_playlist(playlist_id);
-		if (!playlist) {
-			NLOG_ERROR("url: %s: there is no playlist_id: %s", req.url().to_human_readable().c_str(), playlist_id.c_str());
+		m_playlist = this->server()->get_playlist(playlist_id);
+		if (!m_playlist) {
+			NLOG_ERROR("url: %s: there is no playlist_id: %s",
+					req.url().to_human_readable().c_str(), playlist_id.c_str());
 			this->send_reply(thevoid::http_response::bad_request);
 			return;
 		}
 
-		const auto repr_it = playlist->repr.find(repr_id);
-		if (repr_it == playlist->repr.end()) {
+		if (operation == "manifest") {
+			nulla::mpd mpd(m_playlist);
+			mpd.generate();
+
+			std::string manifest = mpd.xml();
+
+			thevoid::http_response reply;
+			reply.set_code(thevoid::http_response::ok);
+			reply.headers().set_content_length(manifest.size());
+			reply.headers().set("Access-Control-Allow-Credentials", "true");
+			reply.headers().set("Access-Control-Allow-Origin", "*");
+
+			this->send_reply(std::move(reply), std::move(manifest));
+			return;
+		}
+
+		if (path.size() < 4) {
+			NLOG_ERROR("url: %s: invalid path, there must be at least 4 path components for operation %s: "
+					"/stream/playlist_id/%s/repr",
+					req.url().to_human_readable().c_str(), operation.c_str(), operation.c_str());
+			this->send_reply(thevoid::http_response::bad_request);
+			return;
+		}
+		std::string repr_id = path[3];
+		if (repr_id.empty()) {
+			NLOG_ERROR("url: %s: invalid path, there must be at least 4 path components in the path for operation %s "
+					"/stream/playlist_id/%s/repr[/time] and none is allowed to be empty",
+					req.url().to_human_readable().c_str(), operation.c_str(), operation.c_str());
+			this->send_reply(thevoid::http_response::bad_request);
+			return;
+		}
+
+		const auto repr_it = m_playlist->repr.find(repr_id);
+		if (repr_it == m_playlist->repr.end()) {
 			NLOG_ERROR("url: %s: playlist_id %s, there is no representation_id: %s",
 					req.url().to_human_readable().c_str(), playlist_id.c_str(),
 					repr_id.c_str());
@@ -494,7 +528,7 @@ public:
 
 		const nulla::representation &repr = repr_it->second;
 
-		if (type == "init") {
+		if (operation == "init") {
 			ebucket::bucket b;
 			elliptics::error_info err = this->server()->bucket_processor()->find_bucket(repr.init.bucket, b);
 			if (err) {
@@ -513,21 +547,26 @@ public:
 			return;
 		}
 
-		int time = atoi(type.c_str());
-		BOOST_FOREACH(const nulla::track_request &tr, repr.tracks) {
-			ebucket::bucket b;
-			elliptics::error_info err = this->server()->bucket_processor()->find_bucket(tr.bucket, b);
-			if (err) {
-				NLOG_ERROR("url: %s: could not find bucket %s in bucket processor: %s [%d]",
-						req.url().to_human_readable().c_str(), tr.bucket.c_str(),
-						err.message().c_str(), err.code());
-				this->send_reply(thevoid::http_response::bad_request);
-				return;
-			}
-			m_session.reset(new elliptics::session(b->session()));
+		if (operation != "play") {
+			NLOG_ERROR("url: %s: unsupported operation %s",
+					req.url().to_human_readable().c_str(), operation.c_str());
+			this->send_reply(thevoid::http_response::bad_request);
+			return;
+		}
 
-			NLOG_INFO("%s: playlist_id: %s, time: %s/%d", __func__, playlist_id.c_str(), type.c_str(), time);
-			request_track_data(tr.key, time);
+		if (path.size() != 5) {
+			NLOG_ERROR("url: %s: operation %s requires 5 path components: /stream/playlist_id/%s/repr/time",
+					req.url().to_human_readable().c_str(), operation.c_str(), operation.c_str());
+			this->send_reply(thevoid::http_response::bad_request);
+			return;
+		}
+
+		int time = atoi(path[4].c_str());
+
+		BOOST_FOREACH(const nulla::track_request &tr, repr.tracks) {
+			NLOG_INFO("%s: playlist_id: %s, time: %s/%d", __func__,
+					playlist_id.c_str(), operation.c_str(), time);
+			request_track_data(tr, time);
 			break;
 		}
 	}
@@ -561,7 +600,8 @@ public:
 				std::bind(&on_dash_stream_base::close, this->shared_from_this(), std::placeholders::_1));
 	}
 
-	void on_read_samples(nulla::writer_options &opt, const elliptics::sync_read_result &result, const elliptics::error_info &error) {
+	void on_read_samples(nulla::writer_options &opt, const nulla::track_request &tr,
+			const elliptics::sync_read_result &result, const elliptics::error_info &error) {
 		if (error) {
 			NLOG_ERROR("buffered-get: %s: url: %s: error: %s",
 					__func__, this->request().url().to_human_readable().c_str(), error.message().c_str());
@@ -577,8 +617,10 @@ public:
 		opt.sample_data = sample_data.data<char>();
 		opt.sample_data_size = sample_data.size();
 
+		const nulla::track &track = tr.track();
+
 		std::vector<char> movie_data;
-		nulla::iso_writer writer(m_media.tracks[0]);
+		nulla::iso_writer writer(track);
 		int err = writer.create(opt, movie_data);
 		if (err < 0) {
 			NLOG_ERROR("buffered-get: %s: url: %s: writer creation error: %d",
@@ -599,12 +641,22 @@ public:
 				std::bind(&on_dash_stream_base::close, this->shared_from_this(), std::placeholders::_1));
 	}
 
-	void request_track_data(const std::string &key, long time) {
-		const nulla::track &track = m_media.tracks[0];
+	void request_track_data(const nulla::track_request &tr, long time) {
+		const nulla::track &track = tr.track();
 
-		u64 dtime_start = time * track.timescale;
-		u64 time_end = time + 10;
-		u64 dtime_end = time_end * track.timescale;
+		ebucket::bucket b;
+		elliptics::error_info err = this->server()->bucket_processor()->find_bucket(tr.bucket, b);
+		if (err) {
+			NLOG_ERROR("url: %s: could not find bucket %s in bucket processor: %s [%d]",
+					this->request().url().to_human_readable().c_str(), tr.bucket.c_str(),
+					err.message().c_str(), err.code());
+			this->send_reply(thevoid::http_response::bad_request);
+			return;
+		}
+
+		u64 dtime_start = time * track.media_timescale;
+		u64 time_end = time + m_playlist->chunk_duration_sec;
+		u64 dtime_end = time_end * track.media_timescale;
 
 
 		ssize_t pos_start = track.sample_position_from_dts(dtime_start);
@@ -628,11 +680,11 @@ public:
 		u64 end_offset = track.samples[pos_end].offset + track.samples[pos_end].length;
 
 		NLOG_INFO("buffered-get: %s: url: %s: track_id: %d, track_number: %d, samples: [%ld, %ld): "
-				"timescale: %d, duration: %ld, "
+				"media_timescale: %d, media_duration: %ld, "
 				"dtime: [%ld, %ld), time: [%ld, %ld), data-bytes: [%ld, %ld)",
 				__func__, this->request().url().to_human_readable().c_str(), track.id, track.number,
 				pos_start, pos_end,
-				track.timescale, track.duration,
+				track.media_timescale, track.media_duration,
 				dtime_start, dtime_end, time, time_end, start_offset, end_offset);
 
 		nulla::writer_options opt;
@@ -640,20 +692,17 @@ public:
 		opt.pos_end = pos_end;
 		opt.dts_start = dtime_start;
 		opt.dts_end = dtime_end;
-		opt.fragment_duration = 1 * track.timescale; // 1 second
+		opt.fragment_duration = 1 * track.media_timescale; // 1 second
 		opt.dts_start_absolute = 0;
 
-		m_session->read_data(key, start_offset, end_offset - start_offset).connect(
+		b->session().read_data(tr.key, start_offset, end_offset - start_offset).connect(
 				std::bind(&on_dash_stream_base::on_read_samples,
-					this->shared_from_this(), opt, std::placeholders::_1, std::placeholders::_2));
+					this->shared_from_this(), opt, std::cref(tr), std::placeholders::_1, std::placeholders::_2));
 	}
 
 
 private:
-	std::unique_ptr<elliptics::session> m_session;
 	nulla::playlist_t m_playlist;
-	elliptics::key m_key;
-	nulla::media m_media;
 };
 
 template <typename Server>
@@ -682,25 +731,6 @@ public:
 			options::prefix_match("/stream"),
 			options::methods("GET")
 		);
-
-		return true;
-	}
-
-	bool check_bucket_key(const thevoid::http_request &req) {
-		const auto &path = req.url().path_components();
-		if (path.size() <= 2) {
-			NLOG_ERROR("url: %s: invalid path, there must be at least 2 path components: /bucket/key",
-					req.url().to_human_readable().c_str());
-			return false;
-		}
-
-		size_t prefix_size = 1 + path[0].size() + 1 + path[1].size() + 1;
-		if (req.url().path().size() - prefix_size == 0) {
-			NLOG_ERROR("url: %s: invalid path, there must be at least 2 path components and "
-					"key should not be empty: /bucket/key",
-					req.url().to_human_readable().c_str());
-			return false;
-		}
 
 		return true;
 	}

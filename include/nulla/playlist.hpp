@@ -22,7 +22,21 @@ struct track_request {
 	nulla::media		media;
 	u32			requested_track_number; // desired track number among all tracks in given media
 
+	// index of the requested track amond all @media.tracks
+	// if @meta_unpack() - playlist generation time - fails to find requested track, it will return error
+	// and connection will be reset, so at time when client starts requesting media samples this index
+	// will be guaranteed to be valid
+	int			requested_track_index = -1;
+
 	elliptics::data_pointer	sample_data;
+
+	const nulla::track &track() const {
+		if (requested_track_index == -1) {
+			elliptics::throw_error(-EINVAL, "track_request doesn't have valid @requested_track_index");
+		}
+
+		return media.tracks[requested_track_index];
+	}
 };
 
 struct representation {
