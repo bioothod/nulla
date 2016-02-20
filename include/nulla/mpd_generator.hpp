@@ -139,11 +139,23 @@ private:
 							std::to_string(track.video.sar_h));
 				}
 
+				add_segment(repr, r, track);
 				break;
 			}
 		}
 
 		aset.add_child("Representation", repr);
+	}
+
+	void add_segment(pt::ptree &repr, const nulla::representation &r, const nulla::track &track) {
+		pt::ptree seg;
+
+		seg.put("<xmlattr>.timescale", track.timescale);
+		seg.put("<xmlattr>.duration", track.timescale * m_playlist->chunk_duration_sec);
+		seg.put("<xmlattr>.initialization", r.id + "/init");
+		seg.put("<xmlattr>.media", r.id + "/$Time$");
+
+		repr.add_child("SegmentTemplate", seg);
 	}
 
 	std::string print_time(long duration_msec) const {

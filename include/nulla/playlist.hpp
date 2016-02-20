@@ -58,6 +58,8 @@ struct raw_playlist {
 	std::atomic_int				meta_chunks_read;
 	int					meta_chunks_requested = 0;
 
+	int					chunk_duration_sec = 10;
+
 	std::vector<period>			periods;
 
 	// random string
