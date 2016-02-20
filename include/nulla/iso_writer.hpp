@@ -46,7 +46,7 @@ public:
 		track = gf_isom_new_track(movie, m_track.number, m_track.media_type, m_track.timescale);
 		gf_isom_set_track_enabled(movie, m_track.number, 1);
 		esd = gf_odf_desc_esd_new(SLPredef_MP4);
-		esd->decoderConfig->streamType = m_track.stream_type;
+		esd->decoderConfig->streamType = (m_track.media_type == GF_ISOM_MEDIA_AUDIO) ? GF_STREAM_AUDIO : GF_STREAM_VISUAL;
 		gf_isom_new_mpeg4_description(movie, track, esd, NULL, NULL, &di);
 
 		if (m_track.media_subtype == GF_ISOM_SUBTYPE_MPEG4) {

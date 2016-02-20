@@ -14,12 +14,12 @@
 namespace ioremap { namespace nulla {
 
 struct sample {
-	u32		length;
-	u32		di;
-	u64		offset;
-	u64		dts;
-	u64		cts_offset;
-	bool		is_rap;
+	u32		length = 0;
+	u32		di = 0;
+	u64		offset = 0;
+	u64		dts = 0;
+	u64		cts_offset = 0;
+	bool		is_rap = false;
 
 	bool operator<(const sample &other) const {
 		return dts < other.dts;
@@ -44,20 +44,75 @@ ssize_t sample_position_from_dts(const std::vector<sample> &collection, u64 dts)
 }
 
 struct track {
-	u32		media_type;
-	u32		media_subtype;
-	u32		media_subtype_mpeg4;
-	u32		stream_type;
+	u32		media_type = 0;
+	u32		media_subtype = 0;
+	u32		media_subtype_mpeg4 = 0;
+	u32		media_timescale = 0;
+	u64		media_duration = 0;
 
-	u32		id;
-	u32		number;
+	std::string	mime_type;
+	std::string	codec;
 
-	u32		timescale;
-	u64		duration;
+	u32		id = 0;
+	u32		number = 0;
+
+	u32		timescale = 0;
+	u64		duration = 0;
+
+	u32		bandwidth = 0;
+
+	struct {
+		u32	sample_rate = 0;
+		u32	channels = 0;
+
+		MSGPACK_DEFINE(sample_rate, channels);
+
+		std::string str() const {
+			std::ostringstream ss;
+			if (sample_rate == 0 || channels == 0) {
+				ss << "none";
+			} else {
+				ss << "sample_rate: " << sample_rate
+					<< ", channels: " << channels
+					;
+			}
+
+			return ss.str();
+		}
+	} audio;
+
+	struct {
+		u32	width = 0, height = 0;
+		u32	fps_num = 0, fps_denum = 0;
+		u32	sar_w = 0, sar_h = 0;
+
+		MSGPACK_DEFINE(width, height, fps_num, fps_denum, sar_w, sar_h);
+
+		std::string str() const {
+			std::ostringstream ss;
+			if (width == 0 || height == 0) {
+				ss << "none";
+			} else {
+				ss << "scale: " << width << "x" << height
+					<< ", fps_num: " << fps_num
+					<< ", fps_denum: " << fps_denum
+					<< ", sar: " << sar_w << ":" << sar_h
+					;
+			}
+
+			return ss.str();
+		}
+	} video;
 
 	std::vector<sample>	samples;
 
-	MSGPACK_DEFINE(media_type, media_subtype, media_subtype_mpeg4, stream_type, id, number, timescale, duration, samples);
+	MSGPACK_DEFINE(media_type, media_subtype, media_subtype_mpeg4, media_timescale, media_duration,
+			mime_type, codec,
+			id, number,
+			timescale, duration,
+			bandwidth,
+			audio, video,
+			samples);
 
 	ssize_t sample_position_from_dts(u64 dts) const {
 		return nulla::sample_position_from_dts(samples, dts);
@@ -74,11 +129,17 @@ struct track {
 		ss << "media_type: " << mtype_str
 		   << ", media_subtype: " << mstype_str
 		   << ", media_subtype_mpeg4: " << mstype_mpeg4_str
-		   << ", stream_type: " << stream_type
+		   << ", media_timescale: " << media_timescale
+		   << ", media_duration: " << media_duration
+		   << ", mime_type: " << mime_type
+		   << ", codec: " << codec
 		   << ", id: " << id
 		   << ", number: " << number
 		   << ", timescale: " << timescale
 		   << ", duration: " << duration
+		   << ", bandwidth: " << bandwidth
+		   << ", audio: " << audio.str()
+		   << ", video: " << video.str()
 		   << ", samples: " << samples.size()
 		   ;
 

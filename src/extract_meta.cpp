@@ -62,6 +62,9 @@ int main(int argc, char *argv[])
 
 		meta = reader.pack();
 		std::cout << "Reader has loaded " << meta.size() << " bytes of metadata from " << file << std::endl;
+		for (auto it = reader.get_media().tracks.begin(), it_end = reader.get_media().tracks.end(); it != it_end; ++it) {
+			std::cout << "track: " << it->str() << std::endl;
+		}
 	} catch (const std::exception &e) {
 		std::cerr << "could not parse " << file << ": " << e.what() << std::endl;
 		return -1;

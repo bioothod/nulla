@@ -4,6 +4,7 @@
 #include "nulla/sample.hpp"
 
 #include <gpac/constants.h>
+#include <gpac/media_tools.h>
 #include <gpac/tools.h>
 #include <gpac/isomedia.h>
 
@@ -54,24 +55,59 @@ public:
 			nulla::track t;
 
 			t.number = i;
+			t.id = gf_isom_get_track_id(m_movie, i);
+
 			t.media_type = gf_isom_get_media_type(m_movie, i);
 			t.media_subtype = gf_isom_get_media_subtype(m_movie, i, 1);
 			t.media_subtype_mpeg4 = gf_isom_get_mpeg4_subtype(m_movie, i, 1);
-			t.id = gf_isom_get_track_id(m_movie, i);
-			t.duration = gf_isom_get_track_duration(m_movie, i);
-			t.timescale = gf_isom_get_media_timescale(m_movie, i);
+			t.media_timescale = gf_isom_get_media_timescale(m_movie, i);
+			t.media_duration = gf_isom_get_media_duration(m_movie, i);
 
-			GF_ESD *esd = gf_isom_get_esd(m_movie, i, 1);
-			if (!esd) {
-				t.stream_type = GF_STREAM_OD;
+			t.timescale = gf_isom_get_timescale(m_movie);
+			t.duration = gf_isom_get_track_duration(m_movie, i);
+
+			float duration;
+			if (t.duration && t.timescale) {
+				duration = (float)t.duration / (float)t.timescale;
+			} else if (t.media_duration && t.media_timescale) {
+				duration = (float)t.media_duration / (float)t.media_timescale;
 			} else {
-				t.stream_type = esd->decoderConfig->streamType;
-				gf_odf_desc_del((GF_Descriptor *) esd);
+				duration = 1;
 			}
+			t.bandwidth = gf_isom_get_media_data_size(m_movie, i) * 8 / duration;
+
+			switch (t.media_type) {
+			case GF_ISOM_MEDIA_AUDIO:
+				t.mime_type = "audio/mp4";
+				gf_isom_get_audio_info(m_movie, i, 1, &t.audio.sample_rate, &t.audio.channels, NULL);
+
+				break;
+			case GF_ISOM_MEDIA_VISUAL:
+				t.mime_type = "video/mp4";
+
+				gf_isom_get_visual_info(m_movie, i, 1, &t.video.width, &t.video.height);
+				t.video.fps_num = gf_isom_get_media_timescale(m_movie, i);
+				t.video.fps_denum = gf_isom_get_sample_duration(m_movie, i, 2);
+
+				gf_isom_get_pixel_aspect_ratio(m_movie, i, 1, &t.video.sar_w, &t.video.sar_h);
+
+				break;
+			default:
+				t.mime_type = "weird/mp4";
+				break;
+			}
+
+			char codec[128];
+			e = gf_media_get_rfc_6381_codec_name(m_movie, i, codec, GF_TRUE, GF_TRUE);
+			if (e != GF_OK) {
+				std::ostringstream ss;
+				ss << "could not get codec name: " << gf_error_to_string(e);
+				throw std::runtime_error(ss.str());
+			}
+			t.codec.assign(codec);
 
 			e = parse_track(t);
 			if (e == GF_OK) {
-				std::cout << "parsed track: " << t.str() << std::endl; 
 				m_media.tracks.emplace_back(t);
 			}
 		}
@@ -85,6 +121,10 @@ public:
 		buffer.seekg(0);
 
 		return buffer.str();
+	}
+
+	const media &get_media() const {
+		return m_media;
 	}
 
 private:
@@ -128,7 +168,7 @@ private:
 			*/
 
 			/*here we dump some sample info: samp->data, samp->dataLength, samp->isRAP, samp->DTS, samp->CTS_Offset */
-#if 1
+#if 0
 			fprintf(stdout, "Found sample #%5d (#%5d) of length %8d, RAP: %d, DTS: %ld, CTS: %ld, data-offset: %ld\n",
 					sidx, sample_count,
 					iso_sample->dataLength, iso_sample->IsRAP,
