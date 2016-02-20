@@ -511,7 +511,7 @@ public:
 		std::string repr_id = path[3];
 		if (repr_id.empty()) {
 			NLOG_ERROR("url: %s: invalid path, there must be at least 4 path components in the path for operation %s "
-					"/stream/playlist_id/%s/repr[/time] and none is allowed to be empty",
+					"/stream/playlist_id/%s/repr[/number] and none is allowed to be empty",
 					req.url().to_human_readable().c_str(), operation.c_str(), operation.c_str());
 			this->send_reply(thevoid::http_response::bad_request);
 			return;
@@ -555,18 +555,18 @@ public:
 		}
 
 		if (path.size() != 5) {
-			NLOG_ERROR("url: %s: operation %s requires 5 path components: /stream/playlist_id/%s/repr/time",
+			NLOG_ERROR("url: %s: operation %s requires 5 path components: /stream/playlist_id/%s/repr/number",
 					req.url().to_human_readable().c_str(), operation.c_str(), operation.c_str());
 			this->send_reply(thevoid::http_response::bad_request);
 			return;
 		}
 
-		int time = atoi(path[4].c_str());
+		long number = atol(path[4].c_str());
 
 		BOOST_FOREACH(const nulla::track_request &tr, repr.tracks) {
-			NLOG_INFO("%s: playlist_id: %s, time: %s/%d", __func__,
-					playlist_id.c_str(), operation.c_str(), time);
-			request_track_data(tr, time);
+			NLOG_INFO("%s: playlist_id: %s, samples: %s/%s/%ld", __func__,
+					playlist_id.c_str(), operation.c_str(), repr_id.c_str(), number);
+			request_track_data(tr, number);
 			break;
 		}
 	}
@@ -641,7 +641,7 @@ public:
 				std::bind(&on_dash_stream_base::close, this->shared_from_this(), std::placeholders::_1));
 	}
 
-	void request_track_data(const nulla::track_request &tr, long time) {
+	void request_track_data(const nulla::track_request &tr, long number) {
 		const nulla::track &track = tr.track();
 
 		ebucket::bucket b;
@@ -654,17 +654,17 @@ public:
 			return;
 		}
 
-		u64 dtime_start = time * track.media_timescale;
-		u64 time_end = time + m_playlist->chunk_duration_sec;
+		u64 dtime_start = (number * m_playlist->chunk_duration_sec) * track.media_timescale;
+		u64 time_end = (number + 1) * m_playlist->chunk_duration_sec;
 		u64 dtime_end = time_end * track.media_timescale;
 
 
 		ssize_t pos_start = track.sample_position_from_dts(dtime_start);
 		if (pos_start < 0) {
 			NLOG_ERROR("buffered-get: %s: url: %s: error: start offset is out of range, track_id: %d, track_number: %d, "
-					"dtime_start: %ld, time: %ld: %zd",
+					"dtime_start: %ld, number: %ld: %zd",
 					__func__, this->request().url().to_human_readable().c_str(), track.id, track.number,
-					dtime_start, time, pos_start);
+					dtime_start, number, pos_start);
 
 			auto ec = boost::system::errc::make_error_code(static_cast<boost::system::errc::errc_t>(pos_start));
 			this->close(ec);
@@ -681,11 +681,11 @@ public:
 
 		NLOG_INFO("buffered-get: %s: url: %s: track_id: %d, track_number: %d, samples: [%ld, %ld): "
 				"media_timescale: %d, media_duration: %ld, "
-				"dtime: [%ld, %ld), time: [%ld, %ld), data-bytes: [%ld, %ld)",
+				"dtime: [%ld, %ld), number: %ld, data-bytes: [%ld, %ld)",
 				__func__, this->request().url().to_human_readable().c_str(), track.id, track.number,
 				pos_start, pos_end,
 				track.media_timescale, track.media_duration,
-				dtime_start, dtime_end, time, time_end, start_offset, end_offset);
+				dtime_start, dtime_end, number, start_offset, end_offset);
 
 		nulla::writer_options opt;
 		opt.pos_start = pos_start;

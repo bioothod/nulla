@@ -153,7 +153,8 @@ private:
 		seg.put("<xmlattr>.timescale", track.media_timescale);
 		seg.put("<xmlattr>.duration", track.media_timescale * m_playlist->chunk_duration_sec);
 		seg.put("<xmlattr>.initialization", "init/" + r.id);
-		seg.put("<xmlattr>.media", "play/" + r.id + "/$Time$");
+		seg.put("<xmlattr>.startNumber", 0);
+		seg.put("<xmlattr>.media", "play/" + r.id + "/$Number$");
 
 		repr.add_child("SegmentTemplate", seg);
 	}
