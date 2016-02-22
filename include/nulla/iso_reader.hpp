@@ -98,7 +98,7 @@ public:
 			}
 
 			char codec[128];
-			e = gf_media_get_rfc_6381_codec_name(m_movie, i, codec, GF_TRUE, GF_TRUE);
+			e = gf_media_get_rfc_6381_codec_name(m_movie, i, codec, GF_FALSE, GF_FALSE);
 			if (e != GF_OK) {
 				std::ostringstream ss;
 				ss << "could not get codec name: " << gf_error_to_string(e);
@@ -144,7 +144,6 @@ private:
 		}
 
 		for (u32 sidx = 1; sidx < sample_count + 1; ++sidx) {
-			/* let's analyze the samples we have parsed so far one by one */
 			iso_sample = gf_isom_get_sample_info(m_movie, t.number, sidx, &di, &offset);
 			if (!iso_sample) {
 				e = gf_isom_last_error(m_movie);
@@ -167,7 +166,6 @@ private:
 			   GF_Descriptor *desc = gf_isom_get_decoder_config(m_movie, reader->track_handle, di);
 			*/
 
-			/*here we dump some sample info: samp->data, samp->dataLength, samp->isRAP, samp->DTS, samp->CTS_Offset */
 #if 0
 			fprintf(stdout, "Found sample #%5d (#%5d) of length %8d, RAP: %d, DTS: %ld, CTS: %ld, data-offset: %ld\n",
 					sidx, sample_count,
