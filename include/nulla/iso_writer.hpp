@@ -34,6 +34,7 @@ public:
 		char filename[128];
 		u32 fragment_duration = 0;
 		u64 start_range;
+		u32 duration = 0;
 
 		snprintf(filename, sizeof(filename), "/tmp/test-%016ld.mp4", (unsigned long)opt.dts_start);
 		unlink(filename);
@@ -43,21 +44,21 @@ public:
 			goto err_out_exit;
 		}
 
-		track = gf_isom_new_track(movie, m_track.number, m_track.media_type, m_track.timescale);
-		gf_isom_set_track_enabled(movie, m_track.number, 1);
+		track = gf_isom_new_track(movie, 1, m_track.media_type, m_track.timescale);
+		gf_isom_set_track_enabled(movie, 1, 1);
 		esd = gf_odf_desc_esd_new(SLPredef_MP4);
 		esd->decoderConfig->streamType = (m_track.media_type == GF_ISOM_MEDIA_AUDIO) ? GF_STREAM_AUDIO : GF_STREAM_VISUAL;
 		gf_isom_new_mpeg4_description(movie, track, esd, NULL, NULL, &di);
 
 		if (m_track.media_subtype == GF_ISOM_SUBTYPE_MPEG4) {
-			e = gf_isom_set_media_subtype(movie, m_track.number, di, m_track.media_subtype_mpeg4);
+			e = gf_isom_set_media_subtype(movie, 1, di, m_track.media_subtype_mpeg4);
 			if (e != GF_OK) {
 				printf("could not set media subtype %s (%08x): %d\n",
 						gf_4cc_to_str(m_track.media_subtype_mpeg4), m_track.media_subtype_mpeg4, e);
 				goto err_out_free_movie;
 			}
 		} else {
-			e = gf_isom_set_media_subtype(movie, m_track.number, di, m_track.media_subtype);
+			e = gf_isom_set_media_subtype(movie, 1, di, m_track.media_subtype);
 			if (e != GF_OK) {
 				printf("could not set media subtype %s (%08x): %d\n",
 						gf_4cc_to_str(m_track.media_subtype), m_track.media_subtype, e);
@@ -65,7 +66,7 @@ public:
 			}
 		}
 
-		e = gf_isom_setup_track_fragment(movie, m_track.number, di, 0, 0, 0, 0, 0);
+		e = gf_isom_setup_track_fragment(movie, 1, di, 0, 0, 0, 0, 0);
 		if (e != GF_OK) {
 			printf("could not setup track fragment: %d\n", e);
 			goto err_out_free_movie;
@@ -88,26 +89,29 @@ public:
 
 		GF_ISOSample samp;
 
-		u32 duration;
 		for (ssize_t i = opt.pos_start; i <= opt.pos_end; ++i) {
 			const sample &ms = m_track.samples[i];
+
+			if (i < (ssize_t)m_track.samples.size() - 1) {
+				duration = m_track.samples[i + 1].dts - ms.dts;
+			}
 
 			if ((fragment_duration == 0) || (fragment_duration > opt.fragment_duration && ms.is_rap)) {
 				e = gf_isom_start_fragment(movie, GF_TRUE);
 				if (e) {
 					printf("%zd/%zd, track: %d, fragment_duration: %d/%d could not start fragment: err: %d\n",
-						i, opt.pos_end, m_track.number, fragment_duration, opt.fragment_duration, e);
+						i, opt.pos_end, 1, fragment_duration, opt.fragment_duration, e);
 					goto err_out_free_movie;
 				}
 
 				fragment_duration = 0;
 
-				gf_isom_set_traf_base_media_decode_time(movie, m_track.number, opt.dts_start_absolute + ms.dts);
+				gf_isom_set_traf_base_media_decode_time(movie, 1, opt.dts_start_absolute + ms.dts);
 
-				printf("%zd/%zd, fragment started, track: %d, di: %x, length: %d, rap: %d, "
+				printf("%zd/%zd, fragment started, track: %d, di: %x, length: %d, rap: %d, di: %d, "
 						"dts: %lu, ms.dts: %lu, first.dts: %lu, duration: %u, cts: %lu, "
 						"offset: %zd\n",
-						i, opt.pos_end, m_track.number, di, ms.length, ms.is_rap,
+						i, opt.pos_end, 1, di, ms.length, ms.is_rap, ms.di,
 						(unsigned long)ms.dts - m_track.samples[opt.pos_start].dts,
 						(unsigned long)ms.dts, (unsigned long)m_track.samples[opt.pos_start].dts,
 						duration,
@@ -132,15 +136,11 @@ public:
 			samp.DTS = ms.dts - m_track.samples[opt.pos_start].dts;
 			samp.CTS_Offset = ms.cts_offset;
 
-			if (i < (ssize_t)m_track.samples.size() - 1) {
-				duration = m_track.samples[i + 1].dts - ms.dts;
-			}
-
-			e = gf_isom_fragment_add_sample(movie, track, &samp, di, duration, 0, 0, GF_FALSE);
+			e = gf_isom_fragment_add_sample(movie, track, &samp, ms.di, duration, 0, 0, GF_FALSE);
 			if (e) {
 				printf("%zd/%zd, track: %d, di: %x, length: %d, rap: %d, dts: %lu, "
 					"offset: %zd, sample_data_size: %zd, could not add sample: err: %d\n",
-					i, opt.pos_end, m_track.number, di, samp.dataLength, samp.IsRAP, (unsigned long)samp.DTS,
+					i, opt.pos_end, 1, di, samp.dataLength, samp.IsRAP, (unsigned long)samp.DTS,
 					offset, opt.sample_data_size, e);
 				goto check;
 			}
@@ -153,7 +153,7 @@ check:
 				printf("%zd/%zd, added sample, track: %d, di: %x, length: %d, rap: %d, "
 						"dts: %lu, ms.dts: %lu, first.dts: %lu, duration: %u, cts: %lu, "
 						"offset: %zd, err: %d\n",
-						i, opt.pos_end, m_track.number, di, samp.dataLength, samp.IsRAP,
+						i, opt.pos_end, 1, di, samp.dataLength, samp.IsRAP,
 						(unsigned long)samp.DTS,
 						(unsigned long)ms.dts, (unsigned long)m_track.samples[opt.pos_start].dts,
 						duration,
