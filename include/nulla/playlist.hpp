@@ -16,11 +16,30 @@ struct track_request {
 	std::string		bucket;
 	std::string		key;
 
+	// @start_msec in dts units - time position within track when given track should start be played from
+	long			dts_start;
+
+	// this is the dts offset of the very first sample of given track among all track requests in given representation
+	// track requests will be played one after another and we have to maintain steady timings,
+	// thus any subsequent track request has to start when previous one has endedin dts units
+	long			dts_first_sample_offset;
+
+
+	// start number of this track in the representation,
+	// "number" is a number of the chunk (@playlist.chunk_duration_sec) to read
+	// client asks for chunk #28 (started from 0), but if the first track has duration of 272 seconds,
+	// than chunk #28 is the first chunk of the second track. @start_number will store 28 in this example.
+	long			start_number;
+
+	// time in milliseconds within given track when it should start be played from
 	long			start_msec;
+	// duration of the portion of the track to be played in milliseconds
 	long			duration_msec;
 
 	nulla::media		media;
-	u32			requested_track_number; // desired track number among all tracks in given media
+
+	// desired track number among all tracks in given media
+	u32			requested_track_number;
 
 	// index of the requested track amond all @media.tracks
 	// if @meta_unpack() - playlist generation time - fails to find requested track, it will return error
@@ -54,6 +73,41 @@ struct representation {
 	// but from MPD/client point of view it is the same single movie being played even if samples
 	// are actually from some other file
 	std::vector<track_request>	tracks;
+
+	// returns iterator pointing to
+	std::vector<track_request>::const_iterator find_track_request(long dts_start) const {
+		typename std::vector<track_request>::const_iterator it, first, last;
+		first = tracks.begin();
+		last = tracks.end();
+
+		typename std::vector<track_request>::difference_type count, step;
+		count = std::distance(first, last);
+
+		while (count > 0) {
+			it = first;
+			step = count / 2;
+			std::advance(it, step);
+
+			if (it->dts_first_sample_offset <= dts_start) {
+				first = ++it;
+				count -= step + 1;
+			} else {
+				count = step;
+			}
+		}
+
+		// we have to return iterator pointing to the track_request which contains requested @dts_start
+		// code above implements std::upper_bound() search
+		// now we have to decrement iterator
+		//
+		// if iterator points to the very first track_request, this means that the first track request
+		// starts behind requested @dts_start and search has failed
+		if (first == tracks.begin())
+			return tracks.end();
+
+		std::advance(first, -1);
+		return first;
+	}
 };
 
 struct adaptation {

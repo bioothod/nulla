@@ -1,0 +1,70 @@
+
+<html lang="en">
+    <head>
+        <meta charset="utf-8"/>
+        <title>Elliptics DASH streaming</title>
+	<script src="dist/dash.all.min.js"></script>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.0/jquery.min.js"></script>
+
+        <style>
+    video {
+        width: 640px;
+        height: 360px;
+    }
+        </style>
+    </head>
+    <div>
+        <audio id="audioPlayer" autoplay preload="none" controls="true" />
+    </div>
+
+    <script>
+$(document).ready(function() {
+    var data = {
+        "periods": [
+        {
+            "asets": [
+            {
+                "rsets": [
+                {
+                    "init": {
+                        "bucket": "b1",
+                        "key": "sound1_dashinit.mp4"
+                    },
+
+                    "tracks": [
+                    {
+                        "bucket": "b1",
+                        "key": "sound1.mp4",
+                        "start": 0,
+                        "duration": 1000000,
+                        "number": 1
+                    },
+                    {
+                        "bucket": "b1",
+                        "key": "sound2.mp4",
+                        "start": 10000,
+                        "duration": 100000,
+                        "number": 1
+                    }
+                    ]
+                }
+                ]
+            }
+            ]
+        }
+        ]
+    };
+
+    $.ajax({
+        method: "POST",
+        url: "http://localhost:8080/dash_manifest",
+        data: JSON.stringify(data)
+    })
+    .done(function(url) {
+        var player = MediaPlayer().create(); 
+        player.initialize(document.querySelector("#audioPlayer"), url, true);
+    });
+});
+    </script>
+    </body>
+</html>

@@ -88,6 +88,7 @@ public:
 
 		GF_ISOSample samp;
 
+		u32 duration;
 		for (ssize_t i = opt.pos_start; i <= opt.pos_end; ++i) {
 			const sample &ms = m_track.samples[i];
 
@@ -102,6 +103,16 @@ public:
 				fragment_duration = 0;
 
 				gf_isom_set_traf_base_media_decode_time(movie, m_track.number, opt.dts_start_absolute + ms.dts);
+
+				printf("%zd/%zd, fragment started, track: %d, di: %x, length: %d, rap: %d, "
+						"dts: %lu, ms.dts: %lu, first.dts: %lu, duration: %u, cts: %lu, "
+						"offset: %zd\n",
+						i, opt.pos_end, m_track.number, di, ms.length, ms.is_rap,
+						(unsigned long)ms.dts - m_track.samples[opt.pos_start].dts,
+						(unsigned long)ms.dts, (unsigned long)m_track.samples[opt.pos_start].dts,
+						duration,
+						(unsigned long)ms.cts_offset,
+						ms.offset - m_track.samples[opt.pos_start].offset);
 			}
 
 			size_t offset = ms.offset - m_track.samples[opt.pos_start].offset;
@@ -121,10 +132,7 @@ public:
 			samp.DTS = ms.dts - m_track.samples[opt.pos_start].dts;
 			samp.CTS_Offset = ms.cts_offset;
 
-			u32 duration;
-			if (i == (ssize_t)m_track.samples.size() - 1) {
-				duration = m_track.samples[1].dts - m_track.samples[0].dts;
-			} else {
+			if (i < (ssize_t)m_track.samples.size() - 1) {
 				duration = m_track.samples[i + 1].dts - ms.dts;
 			}
 
@@ -141,11 +149,17 @@ public:
 
 check:
 #if 1
-			printf("%zd/%zd, added sample, track: %d, di: %x, length: %d, rap: %d, dts: %lu, cts: %lu, "
-					"offset: %zd, sample_data_size: %zd, err: %d\n",
-					i, opt.pos_end, m_track.number, di, samp.dataLength, samp.IsRAP,
-					(unsigned long)samp.DTS, (unsigned long)samp.CTS_Offset,
-					offset, opt.sample_data_size, e);
+			if (i == opt.pos_end) {
+				printf("%zd/%zd, added sample, track: %d, di: %x, length: %d, rap: %d, "
+						"dts: %lu, ms.dts: %lu, first.dts: %lu, duration: %u, cts: %lu, "
+						"offset: %zd, err: %d\n",
+						i, opt.pos_end, m_track.number, di, samp.dataLength, samp.IsRAP,
+						(unsigned long)samp.DTS,
+						(unsigned long)ms.dts, (unsigned long)m_track.samples[opt.pos_start].dts,
+						duration,
+						(unsigned long)samp.CTS_Offset,
+						offset, e);
+			}
 #endif
 			if (e)
 				goto err_out_free_movie;

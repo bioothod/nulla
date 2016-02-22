@@ -137,13 +137,32 @@ private:
 					if (it == m_playlist->repr.end())
 						continue;
 
-					it->second.duration_msec = 0;
-					BOOST_FOREACH(nulla::track_request &tr, it->second.tracks) {
-						it->second.duration_msec += tr.duration_msec;
+					long dts_first_sample_offset = 0;
+					long number = 0;
+
+					nulla::representation &repr = it->second;
+					repr.duration_msec = 0;
+					BOOST_FOREACH(nulla::track_request &tr, repr.tracks) {
+						const nulla::track &track = tr.track();
+
+						tr.dts_start = tr.start_msec * track.media_timescale / 1000;
+						tr.dts_first_sample_offset = dts_first_sample_offset;
+						tr.start_number = number;
+
+						repr.duration_msec += tr.duration_msec;
+						number += (tr.duration_msec + 1000 * m_playlist->chunk_duration_sec - 1) / (1000 * m_playlist->chunk_duration_sec);
+
+						const auto &ls = track.samples[track.samples.size() - 1];
+						const auto &pls = track.samples[track.samples.size() - 2];
+
+						long last_diff_dts = ls.dts - pls.dts;
+						dts_first_sample_offset += ls.dts + last_diff_dts;
+
+						
 					}
 
 					if (p.duration_msec == 0 || p.duration_msec < it->second.duration_msec)
-						p.duration_msec = it->second.duration_msec;
+						p.duration_msec = repr.duration_msec;
 				}
 			}
 		}
@@ -214,7 +233,7 @@ private:
 		if (err) {
 			NLOG_ERROR("meta-read: %s: url: %s: repr_id: %s, could not unpack metadata: %s",
 					__func__, this->request().url().to_human_readable().c_str(),
-					repr_id.c_str(), error.message().c_str());
+					repr_id.c_str(), err.message().c_str());
 
 			this->send_reply(thevoid::http_response::service_unavailable);
 			return;
@@ -409,21 +428,35 @@ private:
 			deserialized.convert(&tr.media);
 
 			for (auto it = tr.media.tracks.begin(), it_end = tr.media.tracks.end(); it != it_end; ++it) {
-				NLOG_INFO("meta-read: %s: url: %s, bucket: %s, key: %s, requested_track_number: %d, track: %s",
+				NLOG_INFO("meta-read: %s: url: %s, bucket: %s, key: %s, requested_track_number: %d, "
+						"requested_start_msec: %ld, requested_duration_msec: %ld, track: %s",
 					__func__, this->request().url().to_human_readable().c_str(),
-					tr.bucket.c_str(), tr.key.c_str(), tr.requested_track_number, it->str().c_str());
+					tr.bucket.c_str(), tr.key.c_str(), tr.requested_track_number,
+					tr.start_msec, tr.duration_msec,
+					it->str().c_str());
 
 				if (tr.requested_track_number == it->number) {
-					long duration_msec;
+					long duration_msec = 0;
 					if (it->duration && it->timescale)
 						duration_msec = it->duration * 1000.0 / it->timescale;
 					else if (it->media_duration && it->media_timescale)
 						duration_msec = it->media_duration * 1000.0 / it->media_timescale;
-					else
-						duration_msec = tr.duration_msec;
 
-					if (tr.duration_msec > duration_msec)
-						tr.duration_msec = duration_msec;
+					if (tr.start_msec >= duration_msec) {
+						return elliptics::create_error(-EINVAL,
+							"invalid track request start_msec: %ld, "
+							"must be less than calculated media track duration_msec: %ld, track: %s",
+							tr.start_msec, duration_msec, it->str().c_str());
+					}
+
+					if (tr.duration_msec > duration_msec - tr.start_msec)
+						tr.duration_msec = duration_msec - tr.start_msec;
+
+					if (it->samples.size() < 2) {
+						return elliptics::create_error(-EINVAL,
+								"invalid track, number of sample %ld is too small, track: %s",
+								it->samples.size(), it->str().c_str());
+					}
 
 					tr.requested_track_index = std::distance(tr.media.tracks.begin(), it);
 				}
@@ -562,13 +595,26 @@ public:
 		}
 
 		long number = atol(path[4].c_str());
+		const auto &trf = repr.tracks.front();
+		const auto &trackf = trf.track();
+		long dts_start = number * m_playlist->chunk_duration_sec * trackf.media_timescale;
 
-		BOOST_FOREACH(const nulla::track_request &tr, repr.tracks) {
-			NLOG_INFO("%s: playlist_id: %s, samples: %s/%s/%ld", __func__,
-					playlist_id.c_str(), operation.c_str(), repr_id.c_str(), number);
-			request_track_data(tr, number);
-			break;
+		const auto trit = repr.find_track_request(dts_start);
+		if (trit == repr.tracks.end()) {
+			NLOG_ERROR("url: %s: invalid number request: %ld, dts: %ld, must be within [%ld, %ld+samples)",
+					req.url().to_human_readable().c_str(), number, dts_start,
+					repr.tracks.front().dts_first_sample_offset,
+					repr.tracks.back().dts_first_sample_offset);
+			this->send_reply(thevoid::http_response::bad_request);
 		}
+
+		const auto &tr = *trit;
+
+		NLOG_INFO("%s: playlist_id: %s, samples: %s/%s/%ld, playing from %s/%s", __func__,
+				playlist_id.c_str(), operation.c_str(), repr_id.c_str(), number,
+				tr.bucket.c_str(), tr.key.c_str());
+
+		request_track_data(tr, number);
 	}
 
 	virtual void on_error(const boost::system::error_code &error) {
@@ -654,9 +700,10 @@ public:
 			return;
 		}
 
-		u64 dtime_start = (number * m_playlist->chunk_duration_sec) * track.media_timescale;
+		number -= tr.start_number;
+		u64 dtime_start = number * m_playlist->chunk_duration_sec * track.media_timescale + tr.dts_start;
 		u64 time_end = (number + 1) * m_playlist->chunk_duration_sec;
-		u64 dtime_end = time_end * track.media_timescale;
+		u64 dtime_end = time_end * track.media_timescale + tr.dts_start;
 
 
 		ssize_t pos_start = track.sample_position_from_dts(dtime_start);
@@ -681,11 +728,11 @@ public:
 
 		NLOG_INFO("buffered-get: %s: url: %s: track_id: %d, track_number: %d, samples: [%ld, %ld): "
 				"media_timescale: %d, media_duration: %ld, "
-				"dtime: [%ld, %ld), number: %ld, data-bytes: [%ld, %ld)",
+				"dts_first_sample_offset: %ld, dtime: [%ld, %ld), number: %ld, data-bytes: [%ld, %ld)",
 				__func__, this->request().url().to_human_readable().c_str(), track.id, track.number,
 				pos_start, pos_end,
 				track.media_timescale, track.media_duration,
-				dtime_start, dtime_end, number, start_offset, end_offset);
+				tr.dts_first_sample_offset, dtime_start, dtime_end, number, start_offset, end_offset);
 
 		nulla::writer_options opt;
 		opt.pos_start = pos_start;
@@ -693,7 +740,7 @@ public:
 		opt.dts_start = dtime_start;
 		opt.dts_end = dtime_end;
 		opt.fragment_duration = 1 * track.media_timescale; // 1 second
-		opt.dts_start_absolute = 0;
+		opt.dts_start_absolute = tr.dts_first_sample_offset - tr.dts_start;
 
 		b->session().read_data(tr.key, start_offset, end_offset - start_offset).connect(
 				std::bind(&on_dash_stream_base::on_read_samples,

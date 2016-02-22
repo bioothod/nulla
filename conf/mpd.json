@@ -22,7 +22,7 @@
 									"bucket": "b1",
 									"key": "sound2.mp4",
 									"start": 10000,
-									"duration": 10000,
+									"duration": 100000,
 									"number": 1
 								}
 							]
