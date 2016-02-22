@@ -389,8 +389,8 @@ private:
 
 			const char *key = ebucket::get_string(*it, "key");
 			const char *bucket = ebucket::get_string(*it, "bucket");
-			long start_msec = ebucket::get_int64(*it, "start");
-			long duration_msec = ebucket::get_int64(*it, "duration");
+			long start_msec = ebucket::get_int64(*it, "start", 0);
+			long duration_msec = ebucket::get_int64(*it, "duration", 0);
 			int requested_track_number = ebucket::get_int64(*it, "number", 1);
 
 			if (!key || !bucket || duration_msec < 0 || start_msec < 0) {
@@ -448,6 +448,9 @@ private:
 							"must be less than calculated media track duration_msec: %ld, track: %s",
 							tr.start_msec, duration_msec, it->str().c_str());
 					}
+
+					if (!tr.duration_msec)
+						tr.duration_msec = duration_msec - tr.start_msec;
 
 					if (tr.duration_msec > duration_msec - tr.start_msec)
 						tr.duration_msec = duration_msec - tr.start_msec;
