@@ -721,10 +721,24 @@ public:
 			this->close(ec);
 			return;
 		}
+		do {
+			const nulla::sample &sam = track.samples[pos_start];
+			if (sam.is_rap) {
+				break;
+			}
+		} while (++pos_start < (ssize_t)track.samples.size() - 1);
 
 		ssize_t pos_end = track.sample_position_from_dts(dtime_end);
 		if (pos_end < 0) {
 			pos_end = track.samples.size() - 1;
+		} else {
+			do {
+				const nulla::sample &sam = track.samples[pos_end];
+				if (sam.is_rap) {
+					pos_end--;
+					break;
+				}
+			} while (++pos_end < (ssize_t)track.samples.size() - 1);
 		}
 
 		u64 start_offset = track.samples[pos_start].offset;
