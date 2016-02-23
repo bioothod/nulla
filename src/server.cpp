@@ -146,22 +146,39 @@ private:
 						const nulla::track &track = tr.track();
 
 						tr.dts_start = tr.start_msec * track.media_timescale / 1000;
+						ssize_t start_pos = track.sample_position_from_dts(tr.dts_start, true);
+						if (start_pos < 0) {
+							throw elliptics::create_error(-EINVAL,
+									"could not locate sample for dts_start: %ld, track: %s",
+									tr.dts_start, track.str().c_str());
+						}
+						tr.dts_start = track.samples[start_pos].dts;
+
 						tr.dts_first_sample_offset = dts_first_sample_offset;
 						tr.start_number = number;
 
 						repr.duration_msec += tr.duration_msec;
 						number += (tr.duration_msec + 1000 * m_playlist->chunk_duration_sec - 1) / (1000 * m_playlist->chunk_duration_sec);
 
-						const auto &ls = track.samples[track.samples.size() - 1];
-						const auto &pls = track.samples[track.samples.size() - 2];
+						long dts_end = tr.dts_start + tr.duration_msec * track.media_timescale / 1000;
+						ssize_t pos_end = track.sample_position_from_dts(dts_end, false);
+						if (pos_end < 0)
+							pos_end = track.samples.size() - 1;
 
-						long last_diff_dts = ls.dts - pls.dts;
-						dts_first_sample_offset += ls.dts + last_diff_dts;
+						const nulla::sample &end_sample = track.samples[pos_end];
+						const nulla::sample &prev_sample = track.samples[pos_end-1];
 
-						
+						long last_diff_dts = end_sample.dts - prev_sample.dts;
+						dts_first_sample_offset += end_sample.dts + last_diff_dts - tr.dts_start;
+
+						printf("track: %s, dts_start: %lu, dts_end: %lu, "
+								"start_number: %ld, dts_first_sample_offset: %lu\n",
+								track.str().c_str(), tr.dts_start, end_sample.dts + last_diff_dts,
+								tr.start_number, tr.dts_first_sample_offset);
 					}
 
-					if (p.duration_msec == 0 || p.duration_msec < it->second.duration_msec)
+					// set period duration to the smallest representation duration
+					if (p.duration_msec == 0 || p.duration_msec > repr.duration_msec)
 						p.duration_msec = repr.duration_msec;
 				}
 			}
@@ -446,6 +463,10 @@ private:
 								it->samples.size(), it->str().c_str());
 					}
 
+					if (tr.duration_msec * 1000 < m_playlist->chunk_duration_sec) {
+						m_playlist->chunk_duration_sec = tr.duration_msec * 1000;
+					}
+
 					tr.requested_track_index = std::distance(tr.media.tracks.begin(), it);
 				}
 			}
@@ -586,14 +607,12 @@ public:
 		}
 
 		long number = atol(path[4].c_str());
-		const auto &trf = repr.tracks.front();
-		const auto &trackf = trf.track();
-		long dts_start = number * m_playlist->chunk_duration_sec * trackf.media_timescale;
-
-		const auto trit = repr.find_track_request(dts_start);
+		const auto trit = repr.find_track_request(number);
 		if (trit == repr.tracks.end()) {
+			const auto &trf = repr.tracks.front();
 			NLOG_ERROR("url: %s: invalid number request: %ld, dts: %ld, must be within [%ld, %ld+samples)",
-					req.url().to_human_readable().c_str(), number, dts_start,
+					req.url().to_human_readable().c_str(),
+					number, number * m_playlist->chunk_duration_sec * trf.track().media_timescale,
 					repr.tracks.front().dts_first_sample_offset,
 					repr.tracks.back().dts_first_sample_offset);
 			this->send_reply(thevoid::http_response::bad_request);
@@ -706,11 +725,10 @@ public:
 
 		number -= tr.start_number;
 		u64 dtime_start = number * m_playlist->chunk_duration_sec * track.media_timescale + tr.dts_start;
-		u64 time_end = (number + 1) * m_playlist->chunk_duration_sec;
-		u64 dtime_end = time_end * track.media_timescale + tr.dts_start;
+		u64 dtime_end = (number + 1) * m_playlist->chunk_duration_sec * track.media_timescale + tr.dts_start;
 
 
-		ssize_t pos_start = track.sample_position_from_dts(dtime_start);
+		ssize_t pos_start = track.sample_position_from_dts(dtime_start, true);
 		if (pos_start < 0) {
 			NLOG_ERROR("buffered-get: %s: url: %s: error: start offset is out of range, track_id: %d, track_number: %d, "
 					"dtime_start: %ld, number: %ld: %zd",
@@ -721,24 +739,10 @@ public:
 			this->close(ec);
 			return;
 		}
-		do {
-			const nulla::sample &sam = track.samples[pos_start];
-			if (sam.is_rap) {
-				break;
-			}
-		} while (++pos_start < (ssize_t)track.samples.size() - 1);
 
-		ssize_t pos_end = track.sample_position_from_dts(dtime_end);
+		ssize_t pos_end = track.sample_position_from_dts(dtime_end, false);
 		if (pos_end < 0) {
 			pos_end = track.samples.size() - 1;
-		} else {
-			do {
-				const nulla::sample &sam = track.samples[pos_end];
-				if (sam.is_rap) {
-					pos_end--;
-					break;
-				}
-			} while (++pos_end < (ssize_t)track.samples.size() - 1);
 		}
 
 		u64 start_offset = track.samples[pos_start].offset;
