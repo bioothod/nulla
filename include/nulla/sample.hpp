@@ -30,7 +30,7 @@ struct sample {
 	MSGPACK_DEFINE(length, di, offset, dts, cts_offset, is_rap);
 };
 
-ssize_t sample_position_from_dts(const std::vector<sample> &collection, u64 dts) {
+ssize_t sample_position_from_dts(const std::vector<sample> &collection, u64 dts, bool want_rap) {
 	sample tmp;
 	tmp.dts = dts;
 
@@ -42,7 +42,33 @@ ssize_t sample_position_from_dts(const std::vector<sample> &collection, u64 dts)
 	if (diff <= 0 || diff >= (ssize_t)collection.size())
 		return -EINVAL;
 
-	return diff - 1;
+	--diff;
+
+	if (want_rap) {
+		bool has_rap = false;
+		do {
+			const sample &sam = collection[diff];
+			if (sam.is_rap) {
+				has_rap = true;
+				break;
+			}
+		} while (++diff < (ssize_t)collection.size() - 1);
+		if (!has_rap) {
+			return -ENOENT;
+		}
+
+		return diff;
+	}
+
+	while (++diff < (ssize_t)collection.size() - 1) {
+		const sample &sam = collection[diff];
+		if (sam.is_rap) {
+			--diff;
+			break;
+		}
+	}
+
+	return diff;
 }
 
 struct descriptor {
@@ -241,8 +267,8 @@ struct track {
 			esd,
 			samples);
 
-	ssize_t sample_position_from_dts(u64 dts) const {
-		return nulla::sample_position_from_dts(samples, dts);
+	ssize_t sample_position_from_dts(u64 dts, bool want_rap) const {
+		return nulla::sample_position_from_dts(samples, dts, want_rap);
 	}
 
 	std::string str() const {
