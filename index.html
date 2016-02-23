@@ -14,7 +14,7 @@
         </style>
     </head>
     <div>
-        <audio id="audioPlayer" autoplay preload="none" controls="true" />
+        <video id="audioPlayer" autoplay preload="none" controls="true" />
     </div>
 
     <script>
@@ -23,34 +23,74 @@ $(document).ready(function() {
         "periods": [
         {
             "asets": [
-            {
+	    {
                 "rsets": [
                 {
-                    "init": {
-                        "bucket": "b1",
-                        "key": "sound1_dashinit.mp4"
-                    },
-
                     "tracks": [
                     {
                         "bucket": "b1",
-                        "key": "sound1.mp4",
-                        "start": 0,
-                        "duration": 1000000,
-                        "number": 1
+                        "key": "video_1.mp4",
+                        "number": 1,
+			"duration": 10000
                     },
                     {
                         "bucket": "b1",
+                        "key": "video_2.mp4",
+                        "number": 1,
+			"duration": 10000
+                    },
+                    {
+                        "bucket": "b1",
+                        "key": "video_1.mp4",
+                        "number": 1,
+			"start": 10000,
+			"duration": 10000
+                    },
+                    {
+                        "bucket": "b1",
+                        "key": "video_2.mp4",
+                        "number": 1,
+			"start": 10000,
+			"duration": 10000
+                    },
+                    {
+                        "bucket": "b1",
+                        "key": "video_1.mp4",
+                        "number": 1,
+			"start": 20000,
+			"duration": 10000
+                    },
+                    {
+                        "bucket": "b1",
+                        "key": "video_2.mp4",
+                        "number": 1,
+			"start": 20000,
+			"duration": 10000
+                    }
+		    ]
+		}
+		]
+	    },
+	    {
+                "rsets": [
+                {
+                    "tracks": [
+                    {
+                        "bucket": "b1",
                         "key": "sound2.mp4",
-                        "start": 10000,
-                        "duration": 100000,
+                        "number": 1,
+			"duration": 30000
+                    },
+                    {
+                        "bucket": "b1",
+                        "key": "sound1.mp4",
                         "number": 1
                     }
-                    ]
-                }
-                ]
-            }
-            ]
+		    ]
+		}
+		]
+	    }
+	    ]
         }
         ]
     };
