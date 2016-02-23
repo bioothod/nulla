@@ -30,12 +30,13 @@ public:
 		GF_ISOFile *movie;
 		GF_ESD *esd;
 		GF_Err e;
-		u32 track, di;
+		u32 di;
 		char filename[128];
 		u32 fragment_duration = 0;
 		u64 start_range;
 		u32 duration = 0;
-		u32 track_number = 1;
+		u32 track_id = 1;
+		u32 track_number;
 
 		snprintf(filename, sizeof(filename), "/tmp/test-%016ld.mp4", (unsigned long)opt.dts_start);
 		unlink(filename);
@@ -45,11 +46,11 @@ public:
 			goto err_out_exit;
 		}
 
-		track = gf_isom_new_track(movie, track_number, m_track.media_type, m_track.media_timescale);
+		track_number = gf_isom_new_track(movie, track_id, m_track.media_type, m_track.media_timescale);
 		gf_isom_set_track_enabled(movie, track_number, 1);
 		esd = gf_odf_desc_esd_new(SLPredef_MP4);
 		m_track.esd.export_data(esd);
-		gf_isom_new_mpeg4_description(movie, track, esd, NULL, NULL, &di);
+		gf_isom_new_mpeg4_description(movie, track_number, esd, NULL, NULL, &di);
 
 		if (m_track.media_subtype == GF_ISOM_SUBTYPE_MPEG4) {
 			e = gf_isom_set_media_subtype(movie, track_number, di, m_track.media_subtype_mpeg4);
@@ -86,7 +87,7 @@ public:
 			}
 		}
 
-		e = gf_isom_setup_track_fragment(movie, track_number, di, 0, 0, 0, 0, 0);
+		e = gf_isom_setup_track_fragment(movie, track_id, di, 0, 0, 0, 0, 0);
 		if (e != GF_OK) {
 			printf("could not setup track fragment: %d\n", e);
 			goto err_out_free_movie;
@@ -129,19 +130,20 @@ public:
 			if ((fragment_duration == 0) || (fragment_duration > opt.fragment_duration && ms.is_rap)) {
 				e = gf_isom_start_fragment(movie, GF_TRUE);
 				if (e) {
-					printf("%zd/%zd, track: %d, fragment_duration: %d/%d could not start fragment: err: %d\n",
-						i, opt.pos_end, track_number, fragment_duration, opt.fragment_duration, e);
+					printf("%zd/%zd, track_number: %d, track_id: %d, "
+							"fragment_duration: %d/%d could not start fragment: err: %d\n",
+						i, opt.pos_end, track_number, track_id, fragment_duration, opt.fragment_duration, e);
 					goto err_out_free_movie;
 				}
 
 				fragment_duration = 0;
 
-				gf_isom_set_traf_base_media_decode_time(movie, track_number, opt.dts_start_absolute + ms.dts);
+				gf_isom_set_traf_base_media_decode_time(movie, track_id, opt.dts_start_absolute + ms.dts);
 
-				printf("%zd/%zd, fragment started, track: %d, di: %x, length: %d, rap: %d, di: %d, "
+				printf("%zd/%zd, fragment started, track_number: %d, track_id: %d, di: %x, length: %d, rap: %d, di: %d, "
 						"dts: %lu, ms.dts: %lu, first.dts: %lu, duration: %u, cts: %lu, "
 						"offset: %zd\n",
-						i, opt.pos_end, track_number, di, ms.length, ms.is_rap, ms.di,
+						i, opt.pos_end, track_number, track_id, di, ms.length, ms.is_rap, ms.di,
 						(unsigned long)ms.dts - m_track.samples[opt.pos_start].dts,
 						(unsigned long)ms.dts, (unsigned long)m_track.samples[opt.pos_start].dts,
 						duration,
@@ -166,11 +168,11 @@ public:
 			samp.DTS = ms.dts - m_track.samples[opt.pos_start].dts;
 			samp.CTS_Offset = ms.cts_offset;
 
-			e = gf_isom_fragment_add_sample(movie, track, &samp, ms.di, duration, 0, 0, GF_FALSE);
+			e = gf_isom_fragment_add_sample(movie, track_id, &samp, ms.di, duration, 0, 0, GF_FALSE);
 			if (e) {
-				printf("%zd/%zd, track: %d, di: %x, length: %d, rap: %d, dts: %lu, "
+				printf("%zd/%zd, track_number: %d, track_id: %d, di: %x, length: %d, rap: %d, dts: %lu, "
 					"offset: %zd, sample_data_size: %zd, could not add sample: err: %d\n",
-					i, opt.pos_end, track_number, di, samp.dataLength, samp.IsRAP, (unsigned long)samp.DTS,
+					i, opt.pos_end, track_number, track_id, di, samp.dataLength, samp.IsRAP, (unsigned long)samp.DTS,
 					offset, opt.sample_data_size, e);
 				goto check;
 			}
@@ -180,10 +182,10 @@ public:
 check:
 #if 1
 			if (i == opt.pos_end) {
-				printf("%zd/%zd, added sample, track: %d, di: %x, length: %d, rap: %d, "
+				printf("%zd/%zd, added sample, track_number: %d, track_id: %d, di: %x, length: %d, rap: %d, "
 						"dts: %lu, ms.dts: %lu, first.dts: %lu, duration: %u, cts: %lu, "
 						"offset: %zd, err: %d\n",
-						i, opt.pos_end, track_number, di, samp.dataLength, samp.IsRAP,
+						i, opt.pos_end, track_number, track_id, di, samp.dataLength, samp.IsRAP,
 						(unsigned long)samp.DTS,
 						(unsigned long)ms.dts, (unsigned long)m_track.samples[opt.pos_start].dts,
 						duration,
