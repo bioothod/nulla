@@ -75,7 +75,7 @@ struct representation {
 	std::vector<track_request>	tracks;
 
 	// returns iterator pointing to
-	std::vector<track_request>::const_iterator find_track_request(long dts_start) const {
+	std::vector<track_request>::const_iterator find_track_request(int number) const {
 		typename std::vector<track_request>::const_iterator it, first, last;
 		first = tracks.begin();
 		last = tracks.end();
@@ -88,7 +88,7 @@ struct representation {
 			step = count / 2;
 			std::advance(it, step);
 
-			if (it->dts_first_sample_offset <= dts_start) {
+			if (it->start_number <= number) {
 				first = ++it;
 				count -= step + 1;
 			} else {
