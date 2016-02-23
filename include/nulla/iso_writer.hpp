@@ -127,6 +127,18 @@ public:
 				duration = m_track.samples[i + 1].dts - ms.dts;
 			}
 
+			size_t offset = ms.offset - m_track.samples[opt.pos_start].offset;
+			if (offset >= opt.sample_data_size) {
+				e = (GF_Err)-E2BIG;
+				goto check;
+			}
+
+			if (ms.length + offset > opt.sample_data_size) {
+				e = (GF_Err)-EINVAL;
+				goto check;
+			}
+
+
 			if ((fragment_duration == 0) || (fragment_duration > opt.fragment_duration && ms.is_rap)) {
 				e = gf_isom_start_fragment(movie, GF_TRUE);
 				if (e) {
@@ -141,25 +153,15 @@ public:
 				gf_isom_set_traf_base_media_decode_time(movie, track_id, opt.dts_start_absolute + ms.dts);
 
 				printf("%zd/%zd, fragment started, track_number: %d, track_id: %d, di: %x, length: %d, rap: %d, di: %d, "
-						"dts: %lu, ms.dts: %lu, first.dts: %lu, duration: %u, cts: %lu, "
+						"dts_start_absolute: %lu, dts: %lu, ms.dts: %lu, first.dts: %lu, duration: %u, cts: %lu, "
 						"offset: %zd\n",
 						i, opt.pos_end, track_number, track_id, di, ms.length, ms.is_rap, ms.di,
+						(unsigned long)opt.dts_start_absolute,
 						(unsigned long)ms.dts - m_track.samples[opt.pos_start].dts,
 						(unsigned long)ms.dts, (unsigned long)m_track.samples[opt.pos_start].dts,
 						duration,
 						(unsigned long)ms.cts_offset,
-						ms.offset - m_track.samples[opt.pos_start].offset);
-			}
-
-			size_t offset = ms.offset - m_track.samples[opt.pos_start].offset;
-			if (offset >= opt.sample_data_size) {
-				e = (GF_Err)-E2BIG;
-				goto check;
-			}
-
-			if (ms.length + offset > opt.sample_data_size) {
-				e = (GF_Err)-EINVAL;
-				goto check;
+						offset);
 			}
 
 			samp.dataLength = ms.length;
