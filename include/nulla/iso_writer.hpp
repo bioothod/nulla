@@ -198,13 +198,11 @@ check:
 
 		}
 
+		gf_isom_flush_fragments(movie, GF_TRUE);
 		e = gf_isom_close_fragments(movie);
+		u64 range_start, range_end;
+		e = gf_isom_close_segment(movie, 0, track_id, 0, 0, 0, GF_FALSE, GF_TRUE, 0, &range_start, &range_end);
 		gf_isom_update_duration(movie);
-
-		e = gf_isom_close(movie);
-		if (e) {
-			return e;
-		}
 
 		{
 			movie_data.resize(gf_isom_get_file_size(movie) - start_range);
@@ -212,6 +210,12 @@ check:
 			in.seekg(start_range);
 			in.read((char *)movie_data.data(), movie_data.size());
 		}
+
+		e = gf_isom_close(movie);
+		if (e) {
+			return e;
+		}
+
 
 		return 0;
 
