@@ -655,7 +655,7 @@ public:
 		const nulla::track &track = tr.track();
 
 		std::vector<char> init_data, movie_data;
-		nulla::iso_writer writer(track);
+		nulla::iso_writer writer(this->server()->tmp_dir(), track);
 		int err = writer.create(opt, true, init_data, movie_data);
 		if (err < 0) {
 			NLOG_ERROR("buffered-get: %s: url: %s: writer creation error: %d",
@@ -696,7 +696,7 @@ public:
 		const nulla::track &track = tr.track();
 
 		std::vector<char> init_data, movie_data;
-		nulla::iso_writer writer(track);
+		nulla::iso_writer writer(this->server()->tmp_dir(), track);
 		int err = writer.create(opt, false, init_data, movie_data);
 		if (err < 0) {
 			NLOG_ERROR("buffered-get: %s: url: %s: writer creation error: %d",
@@ -837,6 +837,10 @@ public:
 		return nulla::playlist_t();
 	}
 
+	const std::string &tmp_dir() const {
+		return m_tmp_dir;
+	}
+
 private:
 	std::shared_ptr<elliptics::node> m_node;
 	std::unique_ptr<elliptics::session> m_session;
@@ -848,6 +852,8 @@ private:
 
 	long m_read_timeout = 60;
 	long m_write_timeout = 60;
+
+	std::string m_tmp_dir = "/tmp/";
 
 	bool elliptics_init(const rapidjson::Value &config) {
 		dnet_config node_config;
@@ -970,6 +976,12 @@ private:
 		return true;
 	}
 
+	bool prepare_server(const rapidjson::Value &config) {
+		const char *tmp_dir = ebucket::get_string(config, "/tmp/");
+		m_tmp_dir.assign(tmp_dir);
+
+		return true;
+	}
 };
 
 int main(int argc, char **argv)

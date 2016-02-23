@@ -24,7 +24,7 @@ struct writer_options {
 
 class iso_writer {
 public:
-	iso_writer(const track &tr) : m_track(tr) {}
+	iso_writer(const std::string &tmp_dir, const track &tr) : m_track(tr), m_tmp_dir(tmp_dir) {}
 
 	int create(const writer_options &opt, bool init, std::vector<char> &init_data, std::vector<char> &movie_data) {
 		GF_ISOFile *movie;
@@ -38,7 +38,8 @@ public:
 		u32 track_id = 1;
 		u32 track_number;
 
-		snprintf(filename, sizeof(filename), "/tmp/test-%016ld.mp4", (unsigned long)opt.dts_start);
+		snprintf(filename, sizeof(filename), "%s/%ld.%ld.%p.mp4",
+				m_tmp_dir.c_str(), (unsigned long)opt.dts_start, (unsigned long)opt.dts_start_absolute, opt.sample_data);
 		unlink(filename);
 		movie = gf_isom_open(filename, GF_ISOM_OPEN_WRITE, NULL);
 		if (!movie) {
@@ -215,20 +216,23 @@ check:
 
 		e = gf_isom_close(movie);
 		if (e) {
-			return e;
+			goto err_out_exit;
 		}
 
 
+		unlink(filename);
 		return 0;
 
 err_out_free_movie:
 		gf_isom_delete(movie);
 err_out_exit:
+		unlink(filename);
 		return (int)e;
 	}
 
 private:
 	track m_track;
+	std::string m_tmp_dir;
 };
 
 }} // namespace ioremap::nulla

@@ -37,6 +37,7 @@
 	"buckets": [
 		"b1"
 	],
-	"metadata-groups": [1,2]
+	"metadata-groups": [1,2],
+	"tmp-dir": "/tmp"
     }
 }
