@@ -143,7 +143,7 @@ private:
 					nulla::representation &repr = it->second;
 					repr.duration_msec = 0;
 					BOOST_FOREACH(nulla::track_request &tr, repr.tracks) {
-						const nulla::track &track = tr.track();
+						nulla::track &track = tr.media.tracks[tr.requested_track_index];
 
 						tr.dts_start = tr.start_msec * track.media_timescale / 1000;
 						ssize_t start_pos = track.sample_position_from_dts(tr.dts_start, true);
@@ -154,21 +154,28 @@ private:
 						}
 						tr.dts_start = track.samples[start_pos].dts;
 
+						long dts_end = tr.dts_start + tr.duration_msec * track.media_timescale / 1000;
+						ssize_t end_pos = track.sample_position_from_dts(dts_end, false);
+						if (end_pos < 0)
+							end_pos = track.samples.size() - 1;
+
+						track.samples.assign(track.samples.data() + start_pos, track.samples.data() + start_pos + end_pos + 1);
+
+						BOOST_FOREACH(nulla::sample &s, track.samples) {
+							s.dts -= tr.dts_start;
+						}
+
+
 						tr.dts_first_sample_offset = dts_first_sample_offset;
 						tr.start_number = number;
 
 						repr.duration_msec += tr.duration_msec;
 						number += (tr.duration_msec + 1000 * m_playlist->chunk_duration_sec - 1) / (1000 * m_playlist->chunk_duration_sec);
 
-						long dts_end = tr.dts_start + tr.duration_msec * track.media_timescale / 1000;
-						ssize_t pos_end = track.sample_position_from_dts(dts_end, false);
-						if (pos_end < 0)
-							pos_end = track.samples.size() - 1;
-
-						const nulla::sample &end_sample = track.samples[pos_end];
-						const nulla::sample &prev_sample = track.samples[pos_end-1];
-
+						const nulla::sample &end_sample = track.samples[track.samples.size() - 1];
+						const nulla::sample &prev_sample = track.samples[track.samples.size() - 2];
 						long last_diff_dts = end_sample.dts - prev_sample.dts;
+
 						dts_first_sample_offset += end_sample.dts + last_diff_dts - tr.dts_start;
 
 						printf("track: %s, dts_start: %lu, dts_end: %lu, "
@@ -463,8 +470,8 @@ private:
 								it->samples.size(), it->str().c_str());
 					}
 
-					if (tr.duration_msec * 1000 < m_playlist->chunk_duration_sec) {
-						m_playlist->chunk_duration_sec = tr.duration_msec * 1000;
+					if (tr.duration_msec < m_playlist->chunk_duration_sec * 1000) {
+						m_playlist->chunk_duration_sec = tr.duration_msec / 1000;
 					}
 
 					tr.requested_track_index = std::distance(tr.media.tracks.begin(), it);
@@ -724,8 +731,8 @@ public:
 		}
 
 		number -= tr.start_number;
-		u64 dtime_start = number * m_playlist->chunk_duration_sec * track.media_timescale + tr.dts_start;
-		u64 dtime_end = (number + 1) * m_playlist->chunk_duration_sec * track.media_timescale + tr.dts_start;
+		u64 dtime_start = number * m_playlist->chunk_duration_sec * track.media_timescale;
+		u64 dtime_end = (number + 1) * m_playlist->chunk_duration_sec * track.media_timescale;
 
 
 		ssize_t pos_start = track.sample_position_from_dts(dtime_start, true);
@@ -762,7 +769,7 @@ public:
 		opt.dts_start = dtime_start;
 		opt.dts_end = dtime_end;
 		opt.fragment_duration = 1 * track.media_timescale; // 1 second
-		opt.dts_start_absolute = tr.dts_first_sample_offset - tr.dts_start;
+		opt.dts_start_absolute = tr.dts_first_sample_offset;
 
 		b->session().read_data(tr.key, start_offset, end_offset - start_offset).connect(
 				std::bind(&on_dash_stream_base::on_read_samples,
