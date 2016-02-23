@@ -79,7 +79,7 @@ public:
 			switch (t.media_type) {
 			case GF_ISOM_MEDIA_AUDIO:
 				t.mime_type = "audio/mp4";
-				gf_isom_get_audio_info(m_movie, i, 1, &t.audio.sample_rate, &t.audio.channels, NULL);
+				gf_isom_get_audio_info(m_movie, i, 1, &t.audio.sample_rate, &t.audio.channels, &t.audio.bps);
 
 				break;
 			case GF_ISOM_MEDIA_VISUAL:
@@ -97,8 +97,14 @@ public:
 				break;
 			}
 
+			GF_ESD *esd = gf_isom_get_esd(m_movie, i, 1);
+			if (esd) {
+				t.esd = nulla::esd(esd);
+			}
+			gf_odf_desc_del((GF_Descriptor *)esd);
+
 			char codec[128];
-			e = gf_media_get_rfc_6381_codec_name(m_movie, i, codec, GF_FALSE, GF_FALSE);
+			e = gf_media_get_rfc_6381_codec_name(m_movie, i, codec, GF_TRUE, GF_TRUE);
 			if (e != GF_OK) {
 				std::ostringstream ss;
 				ss << "could not get codec name: " << gf_error_to_string(e);

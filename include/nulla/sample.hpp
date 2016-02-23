@@ -1,8 +1,10 @@
 #ifndef __NULLA_SAMPLE_HPP
 #define __NULLA_SAMPLE_HPP
 
+#include <gpac/mpeg4_odf.h>
 #include <gpac/setup.h>
-#include <gpac/tools.h>
+#include <gpac/tools.h> // breaks alphabet ordering, since sync_layer.h requires definition of GF_Err
+#include <gpac/sync_layer.h>
 
 #include <algorithm>
 #include <sstream>
@@ -43,6 +45,126 @@ ssize_t sample_position_from_dts(const std::vector<sample> &collection, u64 dts)
 	return diff - 1;
 }
 
+struct descriptor {
+	u8			tag = 0;
+	std::vector<char>	data;
+
+	MSGPACK_DEFINE(tag, data);
+
+	void assign(GF_DefaultDescriptor *desc) {
+		data.resize(desc->dataLength);
+		memcpy((char *)data.data(), desc->data, desc->dataLength);
+		tag = desc->tag;
+	}
+
+	void export_data(GF_DefaultDescriptor *dst) const {
+		if (data.empty())
+			return;
+
+		gf_free(dst->data);
+		dst->data = (char *)gf_malloc(data.size());
+		if (!dst->data)
+			throw std::bad_alloc();
+		memcpy(dst->data, data.data(), data.size());
+		dst->tag = tag;
+		dst->dataLength = data.size();
+	}
+};
+
+struct decoder_config {
+	u8		tag = 0;
+	u32		objectTypeIndication = 0;
+	u8		streamType = 0;
+	u8		upstream = 0;
+	u32		bufferSizeDB = 0;
+	u32		maxBitrate = 0;
+	u32		avgBitrate = 0;
+
+	descriptor	decoderSpecificInfo;
+
+	/*placeholder for RVC decoder config if any*/
+	u16		predefined_rvc_config = 0;
+	descriptor	rvc_config;
+
+	MSGPACK_DEFINE(tag, objectTypeIndication, streamType, upstream, bufferSizeDB, maxBitrate, avgBitrate,
+			decoderSpecificInfo,
+			predefined_rvc_config, rvc_config);
+
+	decoder_config() {}
+	decoder_config(const GF_DecoderConfig *src) {
+		if (!src)
+			return;
+
+		tag = src->tag;
+		objectTypeIndication = src->objectTypeIndication;
+		streamType = src->streamType;
+		upstream = src->upstream;
+		bufferSizeDB = src->bufferSizeDB;
+		maxBitrate = src->maxBitrate;
+		avgBitrate = src->avgBitrate;
+
+		if (src->decoderSpecificInfo) {
+			decoderSpecificInfo.assign(src->decoderSpecificInfo);
+		}
+
+		predefined_rvc_config = src->predefined_rvc_config;
+		if (src->rvc_config) {
+			rvc_config.assign(src->rvc_config);
+		}
+	}
+
+	void export_data(GF_DecoderConfig *dst) const {
+		dst->tag = tag;
+		dst->objectTypeIndication = objectTypeIndication;
+		dst->streamType = streamType;
+		dst->upstream = upstream;
+		dst->bufferSizeDB = bufferSizeDB;
+		dst->maxBitrate = maxBitrate;
+		dst->avgBitrate = avgBitrate;
+
+		if (dst->decoderSpecificInfo) {
+			decoderSpecificInfo.export_data(dst->decoderSpecificInfo);
+		}
+
+		dst->predefined_rvc_config = predefined_rvc_config;
+		if (dst->rvc_config) {
+			rvc_config.export_data(dst->rvc_config);
+		}
+	}
+};
+
+struct esd {
+	std::vector<char>	slconf;
+	decoder_config		dconf;
+
+	MSGPACK_DEFINE(slconf, dconf);
+
+	esd() {}
+	esd(GF_ESD *e) : dconf(e->decoderConfig) {
+		slconf.resize(sizeof(GF_SLConfig));
+		memcpy((char *)slconf.data(), e->slConfig, sizeof(GF_SLConfig));
+	}
+
+	void export_data(GF_ESD *dst) const {
+		if (dst->slConfig) {
+			if (sizeof(GF_SLConfig) != slconf.size()) {
+				std::ostringstream ss;
+				ss << "slConfig size mismatch: runtime: " << sizeof(GF_SLConfig) <<
+					", msgpack read: " << slconf.size();
+
+				throw std::runtime_error(ss.str());
+			}
+
+			memcpy(dst->slConfig, slconf.data(), sizeof(GF_SLConfig));
+		}
+
+		if (dst->decoderConfig) {
+			dconf.export_data(dst->decoderConfig);
+		}
+	}
+
+};
+
 struct track {
 	u32		media_type = 0;
 	u32		media_subtype = 0;
@@ -64,8 +186,9 @@ struct track {
 	struct {
 		u32	sample_rate = 0;
 		u32	channels = 0;
+		u8	bps = 0;
 
-		MSGPACK_DEFINE(sample_rate, channels);
+		MSGPACK_DEFINE(sample_rate, channels, bps);
 
 		std::string str() const {
 			std::ostringstream ss;
@@ -74,6 +197,7 @@ struct track {
 			} else {
 				ss << "sample_rate: " << sample_rate
 					<< ", channels: " << channels
+					<< ", bps: " << (int)bps
 					;
 			}
 
@@ -104,6 +228,8 @@ struct track {
 		}
 	} video;
 
+	nulla::esd esd;
+
 	std::vector<sample>	samples;
 
 	MSGPACK_DEFINE(media_type, media_subtype, media_subtype_mpeg4, media_timescale, media_duration,
@@ -112,6 +238,7 @@ struct track {
 			timescale, duration,
 			bandwidth,
 			audio, video,
+			esd,
 			samples);
 
 	ssize_t sample_position_from_dts(u64 dts) const {

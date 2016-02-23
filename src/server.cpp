@@ -364,21 +364,6 @@ private:
 
 		repr.id = std::to_string(m_playlist->meta_chunks_requested);
 
-		const auto &init = ebucket::get_object(representation, "init");
-		if (!init.IsObject()) {
-			return elliptics::create_error(-EINVAL, "'init' must be an object");
-		}
-
-		const char *key = ebucket::get_string(init, "key");
-		const char *bucket = ebucket::get_string(init, "bucket");
-		if (!key || !bucket) {
-			return elliptics::create_error(-EINVAL, "'init' must have both bucket and key: bucket: %p, key: %p",
-					bucket, key);
-		}
-
-		repr.init.bucket = bucket;
-		repr.init.key = key;
-
 		elliptics::error_info err;
 		size_t idx = 0;
 		for (auto it = tracks.Begin(), it_end = tracks.End(); it != it_end; ++it) {
@@ -565,8 +550,10 @@ public:
 		const nulla::representation &repr = repr_it->second;
 
 		if (operation == "init") {
+			const auto &tr = repr.tracks.front();
+
 			ebucket::bucket b;
-			elliptics::error_info err = this->server()->bucket_processor()->find_bucket(repr.init.bucket, b);
+			elliptics::error_info err = this->server()->bucket_processor()->find_bucket(tr.bucket, b);
 			if (err) {
 				NLOG_ERROR("url: %s: could not find bucket %s in bucket processor: %s [%d]",
 						req.url().to_human_readable().c_str(), repr.init.bucket.c_str(),
@@ -575,11 +562,12 @@ public:
 				return;
 			}
 
+			std::string init_key = tr.key + ".meta";
 			NLOG_INFO("%s: playlist_id: %s, init request, bucket: %s, key: %s",
-					__func__, playlist_id.c_str(), repr.init.bucket.c_str(), repr.init.key.c_str());
+					__func__, playlist_id.c_str(), tr.bucket.c_str(), init_key.c_str());
 
-			b->session().read_data(repr.init.key, 0, 0).connect(std::bind(&on_dash_stream_base::on_read,
-				this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+			b->session().read_data(init_key, 0, 0).connect(std::bind(&on_dash_stream_base::on_read_init,
+				this->shared_from_this(), std::cref(tr), std::placeholders::_1, std::placeholders::_2));
 			return;
 		}
 
@@ -620,13 +608,7 @@ public:
 		request_track_data(tr, number);
 	}
 
-	virtual void on_error(const boost::system::error_code &error) {
-		NLOG_ERROR("buffered-write: on_error: url: %s, error: %s",
-				this->request().url().to_human_readable().c_str(), error.message().c_str());
-	}
-
-	void on_read(const elliptics::sync_read_result &result, const elliptics::error_info &error)
-	{
+	void on_read_init(const nulla::track_request &tr, const elliptics::sync_read_result &result, const elliptics::error_info &error) {
 		if (error) {
 			NLOG_ERROR("buffered-get: %s: url: %s: error: %s",
 					__func__, this->request().url().to_human_readable().c_str(), error.message().c_str());
@@ -637,15 +619,34 @@ public:
 		}
 
 		const elliptics::read_result_entry &entry = result[0];
-		elliptics::data_pointer file = entry.file();
+		const elliptics::data_pointer &file = entry.file();
+
+		nulla::writer_options opt;
+		memset(&opt, 0, sizeof(opt));
+		opt.sample_data = file.data<char>();
+		opt.sample_data_size = file.size();
+
+		const nulla::track &track = tr.track();
+
+		std::vector<char> init_data, movie_data;
+		nulla::iso_writer writer(track);
+		int err = writer.create(opt, true, init_data, movie_data);
+		if (err < 0) {
+			NLOG_ERROR("buffered-get: %s: url: %s: writer creation error: %d",
+					__func__, this->request().url().to_human_readable().c_str(), err);
+
+			auto ec = boost::system::errc::make_error_code(static_cast<boost::system::errc::errc_t>(err));
+			this->close(ec);
+			return;
+		}
 
 		thevoid::http_response reply;
 		reply.set_code(swarm::http_response::ok);
-		reply.headers().set_content_length(file.size());
+		reply.headers().set_content_length(init_data.size());
 		reply.headers().set("Access-Control-Allow-Credentials", "true");
 		reply.headers().set("Access-Control-Allow-Origin", "*");
 
-		this->send_headers(std::move(reply), std::move(file),
+		this->send_headers(std::move(reply), std::move(init_data),
 				std::bind(&on_dash_stream_base::close, this->shared_from_this(), std::placeholders::_1));
 	}
 
@@ -668,9 +669,9 @@ public:
 
 		const nulla::track &track = tr.track();
 
-		std::vector<char> movie_data;
+		std::vector<char> init_data, movie_data;
 		nulla::iso_writer writer(track);
-		int err = writer.create(opt, movie_data);
+		int err = writer.create(opt, false, init_data, movie_data);
 		if (err < 0) {
 			NLOG_ERROR("buffered-get: %s: url: %s: writer creation error: %d",
 					__func__, this->request().url().to_human_readable().c_str(), err);
