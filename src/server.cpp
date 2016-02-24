@@ -159,7 +159,8 @@ private:
 						if (end_pos < 0)
 							end_pos = track.samples.size() - 1;
 
-						track.samples.assign(track.samples.data() + start_pos, track.samples.data() + start_pos + end_pos + 1);
+						memmove((char *)track.samples.data(), track.samples.data() + start_pos, sizeof(nulla::sample) * (end_pos - start_pos + 1));
+						track.samples.resize(end_pos + 1);
 
 						BOOST_FOREACH(nulla::sample &s, track.samples) {
 							s.dts -= tr.dts_start;
