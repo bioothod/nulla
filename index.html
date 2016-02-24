@@ -162,5 +162,41 @@ $(document).ready(function() {
     });
 });
     </script>
+    <body>
+    <p>This is a demo page showing <a href="http://reverbrain.com/elliptics/" target="_blank">Elliptics</a> streaming service which supports both adaptive MPEG-DASH streaming and stream muxing. To implement this we create the whole mpeg container in runtime and only read samples data from audio/video files stored in Elliptics. To allow muxing all files in the stream must be encoded the same way though.</p>
+
+    <p>Using our technology one can implement 5-seconds muxing (5 seconds of the first video, then 5 second of the second, then next 5 seconds from the first and so on) in example below using following control json:
+<pre>
+"tracks": [
+{
+  "bucket": "b1",
+  "key": "video_1.mp4",
+  "duration": 5000
+},
+{
+  "bucket": "b1",
+  "key": "video_2.mp4",
+  "duration": 5000
+},
+{
+  "bucket": "b1",
+  "key": "video_1.mp4",
+  "start": 5000,
+  "duration": 5000
+},
+{
+  "bucket": "b1",
+  "key": "video_2.mp4",
+  "start": 5000,
+  "duration": 5000
+}
+]</pre></p>
+
+<p>Here it is, muxing 2 video and 2 sound channels in the way described above without interruption and gaps. All 4 files are stored in Elliptics storage as usual objects.</p>
+
+<p>Please note that Elliptics and streaming servers are located in USA and it adds 150+ ms to get the first chunk (or if you've sought into the area which isn't yet present in the cache) from Russia, otherwise it is very fast.</p>
+
+<p>You can check the source of the html page above to see how muxing is being set up, you can play with different settings and watch the whole files or mix them in other ways around.</p>
+<p>This example likely will not play on iOS devices since they do not support MPEG-DASH, but only support HLS.</p>
     </body>
 </html>
