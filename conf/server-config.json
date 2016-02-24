@@ -38,6 +38,7 @@
 		"b1"
 	],
 	"metadata-groups": [1,2],
-	"tmp-dir": "/tmp"
+	"tmp-dir": "/tmp",
+	"hostname": "localhost:8080"
     }
 }

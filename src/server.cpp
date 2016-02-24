@@ -198,8 +198,7 @@ private:
 			update_periods();
 
 			std::string cookie = this->server()->store_playlist(m_playlist);
-			//m_playlist->base_url = "http://" + this->request().local_endpoint() + "/" + cookie + "/";
-			m_playlist->base_url = "http://localhost:8080/stream/" + cookie + "/";
+			m_playlist->base_url = "http://" + this->server()->hostname() + "/stream/" + cookie + "/";
 
 			send_manifest();
 		}
@@ -842,6 +841,10 @@ public:
 		return m_tmp_dir;
 	}
 
+	const std::string &hostname() const {
+		return m_hostname;
+	}
+
 private:
 	std::shared_ptr<elliptics::node> m_node;
 	std::unique_ptr<elliptics::session> m_session;
@@ -854,13 +857,18 @@ private:
 	long m_read_timeout = 60;
 	long m_write_timeout = 60;
 
-	std::string m_tmp_dir = "/tmp/";
+	std::string m_tmp_dir;
+	std::string m_hostname;
 
 	bool elliptics_init(const rapidjson::Value &config) {
 		dnet_config node_config;
 		memset(&node_config, 0, sizeof(node_config));
 
 		if (!prepare_config(config, node_config)) {
+			return false;
+		}
+
+		if (!prepare_server(config)) {
 			return false;
 		}
 
@@ -978,8 +986,16 @@ private:
 	}
 
 	bool prepare_server(const rapidjson::Value &config) {
-		const char *tmp_dir = ebucket::get_string(config, "/tmp/");
+		const char *tmp_dir = ebucket::get_string(config, "tmp-dir", "/tmp/");
 		m_tmp_dir.assign(tmp_dir);
+
+		const char *hostname = ebucket::get_string(config, "hostname");
+		if (!hostname) {
+			NLOG_ERROR("\"hostname\" field is missing, it will be used in MPD to generate base URL");
+			return false;
+		}
+
+		m_hostname.assign(hostname);
 
 		return true;
 	}
