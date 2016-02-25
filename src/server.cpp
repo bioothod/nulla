@@ -198,7 +198,7 @@ private:
 			update_periods();
 
 			std::string cookie = this->server()->store_playlist(m_playlist);
-			m_playlist->base_url = "http://" + this->server()->hostname() + "/stream/" + cookie + "/";
+			m_playlist->base_url = this->server()->hostname() + "/stream/" + cookie + "/";
 
 			send_manifest();
 		}

@@ -39,6 +39,6 @@
 	],
 	"metadata-groups": [1,2],
 	"tmp-dir": "/tmp",
-	"hostname": "localhost:8080"
+	"hostname": "http://localhost:8080"
     }
 }
