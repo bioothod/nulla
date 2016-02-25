@@ -165,7 +165,7 @@ private:
 						track.samples.resize(end_pos + 1);
 
 						BOOST_FOREACH(nulla::sample &s, track.samples) {
-							s.dts -= tr.dts_start;
+							s.dts -= track.samples[0].dts;
 						}
 
 
