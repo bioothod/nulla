@@ -162,10 +162,10 @@ private:
 
 						memmove((char *)track.samples.data(), track.samples.data() + start_pos,
 								sizeof(nulla::sample) * (end_pos - start_pos + 1));
-						track.samples.resize(end_pos + 1);
+						track.samples.resize(end_pos - start_pos + 1);
 
 						BOOST_FOREACH(nulla::sample &s, track.samples) {
-							s.dts -= track.samples[0].dts;
+							s.dts -= tr.dts_start;
 						}
 
 
@@ -180,11 +180,10 @@ private:
 						const nulla::sample &prev_sample = track.samples[track.samples.size() - 2];
 						long last_diff_dts = end_sample.dts - prev_sample.dts;
 
-						dts_first_sample_offset += end_sample.dts + last_diff_dts - tr.dts_start;
+						dts_first_sample_offset += end_sample.dts + last_diff_dts;
 
-						printf("track: %s, dts_start: %lu, dts_end: %lu, "
-								"start_number: %ld, dts_first_sample_offset: %lu\n",
-								track.str().c_str(), tr.dts_start, end_sample.dts + last_diff_dts,
+						printf("track: %s, dts: [%lu, %lu), start_number: %ld, dts_first_sample_offset: %lu\n",
+								track.str().c_str(), track.samples[0].dts, end_sample.dts + last_diff_dts,
 								tr.start_number, tr.dts_first_sample_offset);
 					}
 
