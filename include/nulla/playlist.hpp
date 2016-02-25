@@ -128,6 +128,13 @@ struct raw_playlist {
 
 	int					chunk_duration_sec = 10;
 
+	// playlist is valid until @expires_at + its duration,
+	// but the first chunk is only valid until @expires_at,
+	// the second one is valid until @expires_at + @chunk_duration_sec
+	// i'th chunk is valid until @expires_at + @chunk_duration_sec * (i - 1) seconds
+	// and so on
+	std::chrono::system_clock::time_point	expires_at;
+
 	std::vector<period>			periods;
 
 	// random string

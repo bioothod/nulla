@@ -15,10 +15,11 @@
  */
 
 #include "nulla/asio.hpp"
-#include "nulla/mpd_generator.hpp"
+#include "nulla/expiration.hpp"
 #include "nulla/iso_reader.hpp"
 #include "nulla/iso_writer.hpp"
 #include "nulla/playlist.hpp"
+#include "nulla/mpd_generator.hpp"
 
 #include <ebucket/bucket_processor.hpp>
 
@@ -159,7 +160,8 @@ private:
 						if (end_pos < 0)
 							end_pos = track.samples.size() - 1;
 
-						memmove((char *)track.samples.data(), track.samples.data() + start_pos, sizeof(nulla::sample) * (end_pos - start_pos + 1));
+						memmove((char *)track.samples.data(), track.samples.data() + start_pos,
+								sizeof(nulla::sample) * (end_pos - start_pos + 1));
 						track.samples.resize(end_pos + 1);
 
 						BOOST_FOREACH(nulla::sample &s, track.samples) {
@@ -171,7 +173,8 @@ private:
 						tr.start_number = number;
 
 						repr.duration_msec += tr.duration_msec;
-						number += (tr.duration_msec + 1000 * m_playlist->chunk_duration_sec - 1) / (1000 * m_playlist->chunk_duration_sec);
+						number += (tr.duration_msec + 1000 * m_playlist->chunk_duration_sec - 1) /
+							(1000 * m_playlist->chunk_duration_sec);
 
 						const nulla::sample &end_sample = track.samples[track.samples.size() - 1];
 						const nulla::sample &prev_sample = track.samples[track.samples.size() - 2];
@@ -286,6 +289,9 @@ private:
 		if (!doc.IsObject()) {
 			return elliptics::create_error(-EINVAL, "document must be object, its type: %d", doc.GetType());
 		}
+
+		m_playlist->expires_at = std::chrono::system_clock::now() +
+			std::chrono::seconds(ebucket::get_int64(doc, "timeout", 10));
 
 		const auto &periods = ebucket::get_array(doc, "periods");
 		if (!periods.IsArray()) {
@@ -535,6 +541,12 @@ public:
 		}
 
 		if (operation == "manifest") {
+			if (std::chrono::system_clock::now() > m_playlist->expires_at) {
+				NLOG_ERROR("url: %s: has already expired", req.url().to_human_readable().c_str());
+				this->send_reply(thevoid::http_response::request_timeout);
+				return;
+			}
+
 			nulla::mpd mpd(m_playlist);
 			mpd.generate();
 
@@ -578,6 +590,12 @@ public:
 		const nulla::representation &repr = repr_it->second;
 
 		if (operation == "init") {
+			if (std::chrono::system_clock::now() > m_playlist->expires_at) {
+				NLOG_ERROR("url: %s: has already expired", req.url().to_human_readable().c_str());
+				this->send_reply(thevoid::http_response::request_timeout);
+				return;
+			}
+
 			const auto &tr = repr.tracks.front();
 
 			ebucket::bucket b;
@@ -614,6 +632,14 @@ public:
 		}
 
 		long number = atol(path[4].c_str());
+
+		if (std::chrono::system_clock::now() > m_playlist->expires_at +
+				std::chrono::seconds(number * m_playlist->chunk_duration_sec)) {
+			NLOG_ERROR("url: %s: has already expired", req.url().to_human_readable().c_str());
+			this->send_reply(thevoid::http_response::request_timeout);
+			return;
+		}
+
 		const auto trit = repr.find_track_request(number);
 		if (trit == repr.tracks.end()) {
 			const auto &trf = repr.tracks.front();
@@ -822,8 +848,17 @@ public:
 		char dst[2*DNET_ID_SIZE+1];
 		playlist->cookie.assign(dnet_dump_id_len_raw(k.raw_id().id, DNET_ID_SIZE, dst));
 
-		std::lock_guard<std::mutex> guard(m_playlists_lock);
-		m_playlists.insert(std::make_pair(playlist->cookie, playlist));
+		auto expires_at = playlist->expires_at;
+		for (const auto &p : playlist->periods) {
+			expires_at += std::chrono::milliseconds(p.duration_msec);
+		}
+
+		{
+			std::lock_guard<std::mutex> guard(m_playlists_lock);
+			m_playlists.insert(std::make_pair(playlist->cookie, playlist));
+		}
+
+		m_expiration.insert(expires_at, std::bind(&nulla_server::remove_playlist, this, playlist->cookie));
 		return playlist->cookie;
 	}
 
@@ -859,6 +894,13 @@ private:
 
 	std::string m_tmp_dir;
 	std::string m_hostname;
+
+	nulla::expiration m_expiration;
+
+	void remove_playlist(const std::string &cookie) {
+		std::lock_guard<std::mutex> guard(m_playlists_lock);
+		m_playlists.erase(cookie);
+	}
 
 	bool elliptics_init(const rapidjson::Value &config) {
 		dnet_config node_config;
