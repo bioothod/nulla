@@ -261,6 +261,11 @@ private:
 					__func__, this->request().url().to_human_readable().c_str(),
 					repr_id.c_str(), err.message().c_str());
 
+			if (err.code() == -ENOENT) {
+				this->send_reply(thevoid::http_response::not_found);
+				return;
+			}
+
 			this->send_reply(thevoid::http_response::service_unavailable);
 			return;
 		}
