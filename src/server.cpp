@@ -320,8 +320,13 @@ private:
 		return elliptics::error_info();
 	}
 
-	elliptics::error_info parse_manifest_period(const rapidjson::Value &mpd, nulla::period &period) {
-		const auto &asets = ebucket::get_array(mpd, "asets");
+	elliptics::error_info parse_manifest_period(const rapidjson::Value &p, nulla::period &period) {
+		bool skip = ebucket::get_bool(p, "skip", false);
+		if (skip) {
+			return elliptics::error_info();
+		}
+
+		const auto &asets = ebucket::get_array(p, "asets");
 		if (!asets.IsArray()) {
 			return elliptics::create_error(-EINVAL, "adaptation sets 'asets' must be an array");
 		}
@@ -343,14 +348,15 @@ private:
 			++idx;
 		}
 
-		if (period.adaptations.empty()) {
-			return elliptics::create_error(-EINVAL, "there are no adaptations in request");
-		}
-
 		return err;
 	}
 
 	elliptics::error_info parse_manifest_adaptation(const rapidjson::Value &adaptation, nulla::adaptation &aset) {
+		bool skip = ebucket::get_bool(adaptation, "skip", false);
+		if (skip) {
+			return elliptics::error_info();
+		}
+
 		const auto &rsets = ebucket::get_array(adaptation, "rsets");
 		if (!rsets.IsArray()) {
 			return elliptics::create_error(-EINVAL, "representations 'rsets' must be an array");
@@ -378,14 +384,15 @@ private:
 			++idx;
 		}
 
-		if (aset.repr_ids.empty()) {
-			return elliptics::create_error(-EINVAL, "there are no representations in request");
-		}
-
 		return err;
 	}
 
 	elliptics::error_info parse_manifest_representation(const rapidjson::Value &representation, nulla::representation &repr) {
+		bool skip = ebucket::get_bool(representation, "skip", false);
+		if (skip) {
+			return elliptics::error_info();
+		}
+
 		const auto &tracks = ebucket::get_array(representation, "tracks");
 		if (!tracks.IsArray()) {
 			return elliptics::create_error(-EINVAL, "'tracks' must be an array");
@@ -399,6 +406,11 @@ private:
 			if (!it->IsObject()) {
 				return elliptics::create_error(-EINVAL, "'tracks' array must contain objects, entry at index %zd is %d",
 						idx, it->GetType());
+			}
+
+			bool skip = ebucket::get_bool(*it, "skip", false);
+			if (skip) {
+				continue;
 			}
 
 			const char *key = ebucket::get_string(*it, "key");
@@ -424,10 +436,6 @@ private:
 
 			++m_playlist->meta_chunks_requested;
 			++idx;
-		}
-
-		if (repr.tracks.empty()) {
-			return elliptics::create_error(-EINVAL, "there are no tracks in request");
 		}
 
 		return err;

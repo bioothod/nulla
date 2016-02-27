@@ -65,7 +65,8 @@ private:
 			add_aset(period, aset);
 		}
 
-		mpd.add_child("Period", period);
+		if (p.adaptations.size())
+			mpd.add_child("Period", period);
 	}
 
 	void add_aset(pt::ptree &period, const nulla::adaptation &a) {
@@ -80,7 +81,8 @@ private:
 			add_representation(aset, it->second);
 		}
 
-		period.add_child("AdaptationSet", aset);
+		if (a.repr_ids.size())
+			period.add_child("AdaptationSet", aset);
 	}
 
 	void add_representation(pt::ptree &aset, const nulla::representation &r) {
@@ -102,47 +104,43 @@ private:
 				__func__, r.id.c_str(), r.duration_msec, r.tracks.size(),
 				trf.requested_track_number, trf.media.tracks.size());
 
-		BOOST_FOREACH(const nulla::track &track, trf.media.tracks) {
-			printf("%s: requested_track_number: %d, track-number: %d, track: %s\n",
-					__func__, trf.requested_track_number, track.number, track.str().c_str());
+		const nulla::track &track = trf.track();
+		printf("%s: requested_track_number: %d, track-number: %d, track: %s\n",
+				__func__, trf.requested_track_number, track.number, track.str().c_str());
 
-			if (track.number == trf.requested_track_number) {
-				repr.put("<xmlattr>.mimeType", track.mime_type);
-				repr.put("<xmlattr>.codecs", track.codec);
-				repr.put("<xmlattr>.bandwidth", track.bandwidth);
+		repr.put("<xmlattr>.mimeType", track.mime_type);
+		repr.put("<xmlattr>.codecs", track.codec);
+		repr.put("<xmlattr>.bandwidth", track.bandwidth);
 
-				if (track.media_type == GF_ISOM_MEDIA_AUDIO) {
-					repr.put("<xmlattr>.audioSamplingRate", track.audio.sample_rate);
+		if (track.media_type == GF_ISOM_MEDIA_AUDIO) {
+			repr.put("<xmlattr>.audioSamplingRate", track.audio.sample_rate);
 
-					pt::ptree channel;
-					channel.put("<xmlattr>.schemeIdUri", "urn:mpeg:dash:23003:3:audio_channel_configuration:2011");
-					channel.put("<xmlattr>.value", track.audio.channels);
+			pt::ptree channel;
+			channel.put("<xmlattr>.schemeIdUri", "urn:mpeg:dash:23003:3:audio_channel_configuration:2011");
+			channel.put("<xmlattr>.value", track.audio.channels);
 
-					repr.add_child("AudioChannelConfiguration", channel);
-				} else if (track.media_type == GF_ISOM_MEDIA_VISUAL) {
-					u32 fps_num = track.video.fps_num;
-					u32 fps_denum = track.video.fps_denum;
+			repr.add_child("AudioChannelConfiguration", channel);
+		} else if (track.media_type == GF_ISOM_MEDIA_VISUAL) {
+			u32 fps_num = track.video.fps_num;
+			u32 fps_denum = track.video.fps_denum;
 
-					gf_media_get_reduced_frame_rate(&fps_num, &fps_denum);
+			gf_media_get_reduced_frame_rate(&fps_num, &fps_denum);
 
-					repr.put("<xmlattr>.width", track.video.width);
-					repr.put("<xmlattr>.height", track.video.height);
-					if (fps_denum > 1) {
-						repr.put("<xmlattr>.frameRate",
-								std::to_string(track.video.fps_num) + "/" +
-								std::to_string(track.video.fps_denum));
-					} else {
-						repr.put("<xmlattr>.frameRate", track.video.fps_num);
-					}
-					repr.put("<xmlattr>.sar",
-							std::to_string(track.video.sar_w) + ":" +
-							std::to_string(track.video.sar_h));
-				}
-
-				add_segment(repr, r, track);
-				break;
+			repr.put("<xmlattr>.width", track.video.width);
+			repr.put("<xmlattr>.height", track.video.height);
+			if (fps_denum > 1) {
+				repr.put("<xmlattr>.frameRate",
+						std::to_string(track.video.fps_num) + "/" +
+						std::to_string(track.video.fps_denum));
+			} else {
+				repr.put("<xmlattr>.frameRate", track.video.fps_num);
 			}
+			repr.put("<xmlattr>.sar",
+					std::to_string(track.video.sar_w) + ":" +
+					std::to_string(track.video.sar_h));
 		}
+
+		add_segment(repr, r, track);
 
 		aset.add_child("Representation", repr);
 	}
