@@ -104,7 +104,7 @@ public:
 			gf_odf_desc_del((GF_Descriptor *)esd);
 
 			char codec[128];
-			e = gf_media_get_rfc_6381_codec_name(m_movie, i, codec, GF_TRUE, GF_TRUE);
+			e = gf_media_get_rfc_6381_codec_name(m_movie, i, codec, GF_FALSE, GF_FALSE);
 			if (e != GF_OK) {
 				std::ostringstream ss;
 				ss << "could not get codec name: " << gf_error_to_string(e);
