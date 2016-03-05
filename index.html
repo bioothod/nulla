@@ -2,7 +2,25 @@
 <html lang="en">
     <head>
         <meta charset="utf-8"/>
-        <title>Elliptics DASH streaming</title>
+        <title>Elliptics HLS/DASH streaming</title>
+	<script type="text/javascript">
+navigator.sayswho= (function(){
+    var ua= navigator.userAgent, tem,
+    M= ua.match(/(opera|chrome|safari|firefox|msie|trident(?=\/))\/?\s*(\d+)/i) || [];
+    if(/trident/i.test(M[1])){
+        tem=  /\brv[ :]+(\d+)/g.exec(ua) || [];
+        return 'IE '+(tem[1] || '');
+    }
+    if(M[1]=== 'Chrome'){
+        tem= ua.match(/\b(OPR|Edge)\/(\d+)/);
+        if(tem!= null) return tem.slice(1).join(' ').replace('OPR', 'Opera');
+    }
+    M= M[2]? [M[1], M[2]]: [navigator.appName, navigator.appVersion, '-?'];
+    if((tem= ua.match(/version\/(\d+)/i))!= null) M.splice(1, 1, tem[1]);
+    return M.join(' ');
+});
+	</script>
+
 	<script src="dist/dash.all.min.js"></script>
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.0/jquery.min.js"></script>
 
@@ -17,13 +35,20 @@
         </style>
     </head>
     <div>
-        <video id="audioPlayer" autoplay preload="none" controls="true" />
+        <video id="player" autoplay preload="none" controls="true" />
     </div>
 
     <script>
 $(document).ready(function() {
+	var binfo = navigator.sayswho().split(" ");
+	var browser = binfo[0];
+	var version = binfo[1];
+
+	var br = document.querySelector("#browser");
+	br.innerHTML = browser + " " + version;
+
     var data = {
-        "timeout": 4,
+        "timeout": 40000000000000,
         "periods": [
         {
             "asets": [
@@ -133,6 +158,7 @@ $(document).ready(function() {
 		]
 	    },
 	    {
+		"skip": false,
                 "rsets": [
                 {
                     "tracks": [
@@ -156,18 +182,34 @@ $(document).ready(function() {
         ]
     };
 
+    var manifest = "http://192.168.1.45:8080/manifest";
+    if (browser != "Safari") {
+	    manifest += "/dash";
+    } else {
+	    manifest += "/hls";
+    }
+
+
     $.ajax({
         method: "POST",
-        url: "http://localhost:8080/dash_manifest",
+        url: manifest,
         data: JSON.stringify(data)
     })
     .done(function(url) {
-        var player = MediaPlayer().create(); 
-        player.initialize(document.querySelector("#audioPlayer"), url, true);
+	var player = document.querySelector("#player");
+
+	if (browser != "Safari") {
+		var mp = dashjs.MediaPlayer().create(); 
+		mp.initialize(player, url, true);
+	} else {
+		player.src = url;
+	}
     });
 });
     </script>
     <body>
+    <p>You are using <span id="browser"></span> browser.</p>
+
     <p>This is a demo page showing <a href="http://reverbrain.com/elliptics/" target="_blank">Elliptics</a> streaming service which supports both adaptive MPEG-DASH streaming and stream muxing. To implement this we create the whole mpeg container in runtime and only read samples data from audio/video files stored in Elliptics. To allow muxing all files in the stream must be encoded the same way though.</p>
 
     <p>Using our technology one can implement 5-seconds muxing (5 seconds of the first video, then 5 second of the second, then next 5 seconds from the first and so on) in example below using following control json:

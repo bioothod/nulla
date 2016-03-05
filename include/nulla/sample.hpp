@@ -212,7 +212,7 @@ struct track {
 	struct {
 		u32	sample_rate = 0;
 		u32	channels = 0;
-		u8	bps = 0;
+		u8	bps = 0; // bits per sample (!), not per second (!!)
 
 		MSGPACK_DEFINE(sample_rate, channels, bps);
 

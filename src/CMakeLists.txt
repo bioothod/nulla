@@ -1,5 +1,8 @@
 add_executable(nulla_server server.cpp)
 target_link_libraries(nulla_server
+	${AVFORMAT_LIBRARIES}
+	${AVCODEC_LIBRARIES}
+	${AVUTIL_LIBRARIES}
 	${Boost_LIBRARIES}
 	${EBUCKET_LIBRARIES}
 	${ELLIPTICS_LIBRARIES}

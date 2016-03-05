@@ -18,6 +18,9 @@ LOCATE_LIBRARY(THEVOID "thevoid/server.hpp" "thevoid")
 LOCATE_LIBRARY(SWARM "swarm/http_response.hpp" "swarm")
 LOCATE_LIBRARY(MSGPACK "msgpack.hpp" "msgpack")
 LOCATE_LIBRARY(GPAC "gpac/isomedia.h" "gpac")
+LOCATE_LIBRARY(AVFORMAT "libavformat/avformat.h" "avformat" "ffmpeg")
+LOCATE_LIBRARY(AVCODEC "libavcodec/avcodec.h" "avcodec" "ffmpeg")
+LOCATE_LIBRARY(AVUTIL "libavutil/error.h" "avutil" "ffmpeg")
 LOCATE_HEADERS(EBUCKET "ebucket/bucket.hpp")
 
 find_package(Boost COMPONENTS system thread filesystem program_options REQUIRED)
@@ -25,6 +28,7 @@ find_package(Elliptics REQUIRED)
 
 include_directories(
 	"${CMAKE_CURRENT_SOURCE_DIR}/include"
+	${AVFORMAT_INCLUDE_DIRS}
 	${Boost_INCLUDE_DIRS}
 	${EBUCKET_INCLUDE_DIRS}
 	${ELLIPTICS_INCLUDE_DIRS}
@@ -35,6 +39,7 @@ include_directories(
 )
 
 link_directories(
+	${AVFORMAT_LIBRARY_DIRS}
 	${Boost_LIBRARY_DIRS}
 	${EBUCKET_LIBRARY_DIRS}
 	${ELLIPTICS_LIBRARY_DIRS}

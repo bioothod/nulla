@@ -121,6 +121,9 @@ struct period {
 };
 
 struct raw_playlist {
+	// dash or hls
+	std::string				type;
+
 	// number of track metadata already read and unpacked, it must be atomic since data is being read
 	// in parallel and can be unpacked in parallel client IO threads
 	std::atomic_int				meta_chunks_read;

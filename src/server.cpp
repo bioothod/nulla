@@ -15,11 +15,13 @@
  */
 
 #include "nulla/asio.hpp"
+#include "nulla/dash_playlist.hpp"
 #include "nulla/expiration.hpp"
+#include "nulla/hls_playlist.hpp"
 #include "nulla/iso_reader.hpp"
 #include "nulla/iso_writer.hpp"
+#include "nulla/mpeg2ts_writer.hpp"
 #include "nulla/playlist.hpp"
-#include "nulla/mpd_generator.hpp"
 
 #include <ebucket/bucket_processor.hpp>
 
@@ -81,7 +83,23 @@ template <typename Server, typename Stream>
 class on_dash_manifest_base : public thevoid::simple_request_stream<Server>, public std::enable_shared_from_this<Stream> {
 public:
 	virtual void on_request(const thevoid::http_request &req, const boost::asio::const_buffer &buffer) {
+		const auto &path = req.url().path_components();
+		if (path.size() < 2) {
+			NLOG_ERROR("url: %s: could not manifest request must include at least 2 path components: %s/type",
+					req.url().to_human_readable().c_str(), path[0].c_str());
+			this->send_reply(thevoid::http_response::bad_request);
+			return;
+		}
+
+		std::string type = path[1];
+		if (type != "dash" && type != "hls") {
+			NLOG_ERROR("url: %s: unsupported playlist type '%s'", req.url().to_human_readable().c_str(), type.c_str());
+			this->send_reply(thevoid::http_response::bad_request);
+			return;
+		}
+
 		m_playlist = std::shared_ptr<nulla::raw_playlist>(new nulla::raw_playlist());
+		m_playlist->type = type;
 
 		elliptics::error_info err = parse_manifest_request(buffer);
 		if (err) {
@@ -199,15 +217,15 @@ private:
 		if (m_playlist->meta_chunks_read == m_playlist->meta_chunks_requested) {
 			update_periods();
 
-			std::string cookie = this->server()->store_playlist(m_playlist);
-			m_playlist->base_url = this->server()->hostname() + "/stream/" + cookie + "/";
+			std::string playlist_id = this->server()->store_playlist(m_playlist);
+			m_playlist->base_url = this->server()->hostname() + "/stream/" + playlist_id + "/";
 
 			send_manifest();
 		}
 	}
 
 	void send_manifest() {
-		std::string url = m_playlist->base_url + "manifest";
+		std::string url = m_playlist->base_url + "playlist";
 
 		thevoid::http_response reply;
 		reply.set_code(swarm::http_response::ok);
@@ -552,25 +570,46 @@ public:
 			return;
 		}
 
-		if (operation == "manifest") {
+		if (operation == "playlist") {
 			if (std::chrono::system_clock::now() > m_playlist->expires_at) {
 				NLOG_ERROR("url: %s: has already expired", req.url().to_human_readable().c_str());
 				this->send_reply(thevoid::http_response::request_timeout);
 				return;
 			}
 
-			nulla::mpd mpd(m_playlist);
-			mpd.generate();
+			std::string pl;
 
-			std::string manifest = mpd.xml();
+			if (m_playlist->type == "dash") {
+				nulla::mpd mpd(m_playlist);
+				mpd.generate();
+
+				pl = mpd.xml();
+			} else if (m_playlist->type == "hls") {
+				nulla::m3u8 m(m_playlist);
+				m.generate();
+
+				if (path.size() == 3) {
+					pl = m.main_playlist();
+				} else {
+					std::string variant = path[3];
+					pl = m.variant_playlist(variant);
+				}
+			}
+
+			if (pl.empty()) {
+				NLOG_ERROR("url: %s: empty playlist for type %s",
+						req.url().to_human_readable().c_str(), m_playlist->type.c_str());
+				this->send_reply(thevoid::http_response::bad_request);
+				return;
+			}
 
 			thevoid::http_response reply;
 			reply.set_code(thevoid::http_response::ok);
-			reply.headers().set_content_length(manifest.size());
+			reply.headers().set_content_length(pl.size());
 			reply.headers().set("Access-Control-Allow-Credentials", "true");
 			reply.headers().set("Access-Control-Allow-Origin", "*");
 
-			this->send_reply(std::move(reply), std::move(manifest));
+			this->send_reply(std::move(reply), std::move(pl));
 			return;
 		}
 
@@ -733,9 +772,17 @@ public:
 
 		const nulla::track &track = tr.track();
 
-		std::vector<char> init_data, movie_data;
-		nulla::iso_writer writer(this->server()->tmp_dir(), track);
-		int err = writer.create(opt, false, init_data, movie_data);
+		std::vector<char> movie_data;
+		int err;
+		if (m_playlist->type == "dash") {
+			std::vector<char> init_data;
+			nulla::iso_writer writer(this->server()->tmp_dir(), track);
+			err = writer.create(opt, false, init_data, movie_data);
+		} else {
+			nulla::mpeg2ts_writer writer(this->server()->tmp_dir(), track);
+			err = writer.create(opt, movie_data);
+		}
+
 		if (err < 0) {
 			NLOG_ERROR("buffered-get: %s: url: %s: writer creation error: %d",
 					__func__, this->request().url().to_human_readable().c_str(), err);
@@ -837,7 +884,7 @@ public:
 			return false;
 
 		on<on_dash_manifest<nulla_server>>(
-			options::prefix_match("/dash_manifest"),
+			options::prefix_match("/manifest"),
 			options::methods("POST")
 		);
 
@@ -1050,6 +1097,9 @@ private:
 		}
 
 		m_hostname.assign(hostname);
+
+		av_register_all();
+		//av_log_set_level(AV_LOG_VERBOSE);
 
 		return true;
 	}
