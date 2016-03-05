@@ -8,7 +8,6 @@ extern "C" {
 #include <libavformat/avio.h>
 #include <libavutil/intreadwrite.h>
 #include <libavutil/pixfmt.h>
-#include <libavutil/timestamp.h>
 }
 
 namespace ioremap { namespace nulla {
@@ -35,6 +34,8 @@ public:
 		for (auto f : m_filters) {
 			av_bitstream_filter_close(f);
 		}
+
+		avcodec_close(m_stream->codec);
 	}
 
 	int open() {
