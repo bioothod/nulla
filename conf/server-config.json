@@ -37,8 +37,8 @@
 	"buckets": [
 		"b1"
 	],
-	"metadata-groups": [1,2],
-	"tmp-dir": "/tmp",
+	"metadata_groups": [1,2],
+	"tmp_dir": "/tmp",
 	"hostname": "http://192.168.1.45:8080",
 	"chunk_duration_sec": 5
     }

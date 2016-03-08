@@ -1095,13 +1095,13 @@ private:
 			}
 		}
 
-		if (!config.HasMember("metadata-groups")) {
-			NLOG_ERROR("\"application.metadata-groups\" field is missed");
+		if (!config.HasMember("metadata_groups")) {
+			NLOG_ERROR("\"application.metadata_groups\" field is missed");
 			return false;
 		}
 
 		std::vector<int> mgroups;
-		auto &groups_meta_array = config["metadata-groups"];
+		auto &groups_meta_array = config["metadata_groups"];
 		for (auto it = groups_meta_array.Begin(), end = groups_meta_array.End(); it != end; ++it) {
 			if (it->IsInt())
 				mgroups.push_back(it->GetInt());
@@ -1114,7 +1114,7 @@ private:
 	}
 
 	bool prepare_server(const rapidjson::Value &config) {
-		const char *tmp_dir = ebucket::get_string(config, "tmp-dir", "/tmp/");
+		const char *tmp_dir = ebucket::get_string(config, "tmp_dir", "/tmp/");
 		m_tmp_dir.assign(tmp_dir);
 
 		const char *hostname = ebucket::get_string(config, "hostname");
