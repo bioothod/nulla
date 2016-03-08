@@ -1,6 +1,6 @@
 Summary:	Nulla Elliptics streaming server
 Name:		nulla
-Version:	0.0.1
+Version:	0.1.0
 Release:	1%{?dist}
 
 License:	Apache 2.0
@@ -50,6 +50,9 @@ rm -rf %{buildroot}
 %{_libdir}/*.so.*
 
 %changelog
+* Tue Mar 08 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.1.0
+- Implemented runtime mpeg2ts container generation and HLS streaming
+
 * Fri Feb 05 2016 Evgeniy Polyakov <zbr@ioremap.net> - 2.26.0.0.1
 - Initial commit
 

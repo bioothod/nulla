@@ -1,3 +1,9 @@
+nulla (0.1.0) unstable; urgency=low
+
+  * Implemented runtime mpeg2ts container generation and HLS streaming
+
+ -- Evgeniy Polyakov <zbr@ioremap.net>  Tue, 08 Mar 2016 05:19:06 +0400
+
 nulla (0.0.1) unstable; urgency=low
 
   * Initial commit
