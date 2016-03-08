@@ -95,6 +95,12 @@ private:
 	}
 
 	void add_aset(const nulla::adaptation &a) {
+		if (m_audio_groups.empty()) {
+			m_audio_groups.push_back("none");
+		}
+		if (m_video_groups.empty()) {
+			m_video_groups.push_back("none");
+		}
 		BOOST_FOREACH(const std::string &id, a.repr_ids) {
 			auto it = m_playlist->repr.find(id);
 			if (it == m_playlist->repr.end())
@@ -132,10 +138,14 @@ private:
 			ss << ",RESOLUTION=" << track.video.width << "x" << track.video.height;
 		}
 
-		ss << ",AUDIO=\"" << atype << "\"" <<
-			",VIDEO=\"" << vtype << "\"" <<
-			"\n" << url <<
-			"\n";
+		if (atype != "none") {
+			ss << ",AUDIO=\"" << atype << "\"";
+		}
+		if (vtype != "none") {
+			ss << ",VIDEO=\"" << vtype << "\"";
+		}
+
+		ss << "\n" << url << "\n";
 
 		std::ostringstream pls;
 		pls	<< "#EXTM3U\n"
