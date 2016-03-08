@@ -20,3 +20,8 @@ target_link_libraries(nulla_extract_meta
 	${GPAC_LIBRARIES}
 	${MSGPACK_LIBRARIES}
 )
+
+install(TARGETS
+	nulla_server
+	nulla_extract_meta
+    RUNTIME DESTINATION bin COMPONENT runtime)
