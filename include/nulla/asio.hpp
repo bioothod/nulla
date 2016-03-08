@@ -1,6 +1,9 @@
 #ifndef __IOREMAP_RIFT_ASIO_HPP
 #define __IOREMAP_RIFT_ASIO_HPP
 
+// this is needed for older boost otherwise it will scream that no 'placeholders' namespace is defined
+#include <boost/bind.hpp>
+
 #include <thevoid/stream.hpp>
 #include <elliptics/utils.hpp>
 
