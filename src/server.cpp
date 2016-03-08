@@ -340,6 +340,7 @@ private:
 
 		m_playlist->expires_at = std::chrono::system_clock::now() +
 			std::chrono::seconds(ebucket::get_int64(doc, "timeout", 10));
+		m_playlist->chunk_duration_sec = ebucket::get_int64(doc, "chunk_duration_sec", 5);
 
 		const auto &periods = ebucket::get_array(doc, "periods");
 		if (!periods.IsArray()) {
