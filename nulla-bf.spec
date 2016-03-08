@@ -47,7 +47,7 @@ rm -rf %{buildroot}
 #%doc README.md
 %doc conf/*
 %{_bindir}/*
-%{_libdir}/*.so.*
+#%{_libdir}/*.so.*
 
 %changelog
 * Tue Mar 08 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.1.0
