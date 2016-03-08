@@ -255,7 +255,7 @@ public:
 		AVOutputFormat *fmt = m_format_context->oformat;
 		char filename[128];
 		AVPacket pkt;
-		uint64_t duration;
+		uint64_t duration = 0;
 		std::unique_ptr<output_stream> stream;
 
 		snprintf(filename, sizeof(filename), "%s/%ld.%ld.%p.ts",
