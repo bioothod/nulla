@@ -1,3 +1,10 @@
+nulla (0.1.1) unstable; urgency=low
+
+  * hls: generate correct playlist even if there are no audio/video tracks
+  * package: fixed debian/rpm builds
+
+ -- Evgeniy Polyakov <zbr@ioremap.net>  Tue, 08 Mar 2016 06:54:36 +0400
+
 nulla (0.1.0) unstable; urgency=low
 
   * Implemented runtime mpeg2ts container generation and HLS streaming
