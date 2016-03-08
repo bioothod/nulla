@@ -32,6 +32,5 @@ Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Nulla is an adaptive MPEG-DASH/HLS streaming server for Elliptics distributed storage.
  It can stream the same files from elliptics storage either in DASH or HLS format without
  repackaging or transcoding, it will generate container in runtime depending on the client.
-
  Nulla allows channel muxing, you can stream 5 seconds from file X, then 10 seconds from file Y and so on.
  For more details check http://video.reverbrain.com/index.html
