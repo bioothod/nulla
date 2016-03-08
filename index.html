@@ -211,7 +211,11 @@ $(document).ready(function() {
     <p>You are using <span id="browser"></span> browser.</p>
     <p>Safari browser will use HLS streaming, Chrome/Firefox/others will use MPEG-DASH streaming.</p>
 
-    <p>This is a demo page showing <a href="http://reverbrain.com/elliptics/" target="_blank">Elliptics</a> streaming service which supports both adaptive MPEG-DASH streaming and stream muxing. To implement this we create the whole mpeg container in runtime and only read samples data from audio/video files stored in Elliptics. To allow muxing all files in the stream must be encoded the same way though.</p>
+    <p>This is a demo page showing <a href="http://reverbrain.com/elliptics/" target="_blank">Elliptics</a> streaming service which supports adaptive MPEG-DASH and HLS streaming as well as stream muxing. To implement this we create the whole mpeg container (mp4 or mpeg2ts) in runtime and only read samples data from audio/video files stored in Elliptics.</p>
+
+    <p>You upload video/audio files into Elliptics distributed storage and Nulla service will automatically repack (without transcoding) them into mp4/mpeg2ts formats suitable for either DASH or HLS streaming. No need to upload multiple files or create multiple file edits to implement muxing.</p>
+    
+    <p>To allow muxing all files in the stream must be encoded the same way (to mux multiple streams codecs must be the same, level/profile info can change).</p>
 
     <p>Using our technology one can implement 5-seconds muxing (5 seconds of the first video, then 5 second of the second, then next 5 seconds from the first and so on) in example below using following control json:
 <pre>
