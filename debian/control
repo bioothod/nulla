@@ -1,0 +1,37 @@
+Source: nulla
+Section: net
+Priority: optional
+Maintainer: Evgeniy Polyakov <zbr@ioremap.net>
+Build-Depends:
+ cmake (>= 2.6),
+ debhelper (>= 7.0.50~),
+ libboost-dev,
+ libboost-system-dev,
+ libboost-program-options-dev,
+ libboost-filesystem-dev,
+ elliptics-dev,
+ elliptics-client,
+ libmsgpack-dev,
+ libswarm3-dev,
+ libthevoid3-dev,
+ libgpac-dev (>= 0.6.0),
+ libavcodec-dev (>= 2.6.8),
+ libavcodec-ffmpeg56 (>= 2.6.8),
+ libavfilter-dev (>= 2.6.8),
+ libavfilter-ffmpeg5 (>= 2.6.8),
+ libavformat-dev (>= 2.6.8),
+ libavformat-ffmpeg56 (>= 2.6.8),
+ libavutil-dev (>= 2.6.8),
+ libavutil-ffmpeg54 (>= 2.6.8)
+Standards-Version: 3.8.0
+Homepage: http://www.reverbrain.com/
+
+Package: nulla
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Nulla is an adaptive MPEG-DASH/HLS streaming server for Elliptics distributed storage.
+ It can stream the same files from elliptics storage either in DASH or HLS format without
+ repackaging or transcoding, it will generate container in runtime depending on the client.
+
+ Nulla allows channel muxing, you can stream 5 seconds from file X, then 10 seconds from file Y and so on.
+ For more details check http://video.reverbrain.com/index.html
