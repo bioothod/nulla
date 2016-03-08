@@ -210,6 +210,32 @@ private:
 						p.duration_msec = repr.duration_msec;
 				}
 			}
+
+			// period duration has been set to the smallest representation duration,
+			// we have to update all adaptations to be the same lenght
+			BOOST_FOREACH(nulla::adaptation &a, p.adaptations) {
+				BOOST_FOREACH(std::string &id, a.repr_ids) {
+					auto it = m_playlist->repr.find(id);
+					if (it == m_playlist->repr.end())
+						continue;
+
+					long duration_msec = p.duration_msec;
+					nulla::representation &repr = it->second;
+					repr.duration_msec = duration_msec;
+
+					BOOST_FOREACH(nulla::track_request &tr, repr.tracks) {
+						if (duration_msec < 0) {
+							tr.duration_msec = 0;
+							continue;
+						}
+
+						duration_msec -= tr.duration_msec;
+						if (duration_msec < 0) {
+							tr.duration_msec += duration_msec;
+						}
+					}
+				}
+			}
 		}
 	}
 
