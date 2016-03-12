@@ -4,6 +4,10 @@
         <meta charset="utf-8"/>
         <title>Elliptics HLS/DASH streaming</title>
 	<script type="text/javascript">
+
+document.base_url1 = "http://192.168.1.45:8080/manifest";
+document.base_url = "http://video.reverbrain.com:8080/manifest";
+
 navigator.sayswho= (function(){
     var ua= navigator.userAgent, tem,
     M= ua.match(/(opera|chrome|safari|firefox|msie|trident(?=\/))\/?\s*(\d+)/i) || [];
@@ -39,14 +43,7 @@ navigator.sayswho= (function(){
     </div>
 
     <script>
-$(document).ready(function() {
-	var binfo = navigator.sayswho().split(" ");
-	var browser = binfo[0];
-	var version = binfo[1];
-
-	var br = document.querySelector("#browser");
-	br.innerHTML = browser + " " + version;
-
+document.play = (function(manifest) {
     var data = {
         "timeout": 40000000000000,
         "periods": [
@@ -150,8 +147,7 @@ $(document).ready(function() {
                         "bucket": "b1",
                         "key": "video_2.mp4",
                         "number": 1,
-			"start": 40000,
-			"duration": 5000
+			"start": 40000
                     }
 		    ]
 		}
@@ -182,14 +178,6 @@ $(document).ready(function() {
         ]
     };
 
-    var manifest = "http://192.168.1.45:8080/manifest";
-    if (browser != "Safari") {
-	    manifest += "/dash";
-    } else {
-	    manifest += "/hls";
-    }
-
-
     $.ajax({
         method: "POST",
         url: manifest,
@@ -206,10 +194,31 @@ $(document).ready(function() {
 	}
     });
 });
+
+$(document).ready(function() {
+    var binfo = navigator.sayswho().split(" ");
+    var browser = binfo[0];
+    var version = binfo[1];
+
+    var br = document.querySelector("#browser");
+    br.innerHTML = browser + " " + version;
+
+    var manifest = "/dash";
+    if (browser == "Safari") {
+	    manifest = "/hls";
+    }
+
+    document.play(document.base_url + manifest);
+});
     </script>
     <body>
     <p>You are using <span id="browser"></span> browser.</p>
     <p>Safari browser will use HLS streaming, Chrome/Firefox/others will use MPEG-DASH streaming.</p>
+
+    <p>If your browser has been incorrectly detected, try following links to play a stream:
+    <p><a href="#" onclick="play(document.base_url + '/hls')">HLS stream (Safari, iOS and Mac devices)</a></p>
+    <p><a href="#" onclick="play(document.base_url + '/dash')">MPEG-DASH stream (Chrome, Firefox, IE and other browsers)</a></p>
+    </p>
 
     <p>This is a demo page showing <a href="http://reverbrain.com/elliptics/" target="_blank">Elliptics</a> streaming service which supports adaptive MPEG-DASH and HLS streaming as well as stream muxing. To implement this we create the whole mpeg container (mp4 or mpeg2ts) in runtime and only read samples data from audio/video files stored in Elliptics.</p>
 
