@@ -20,14 +20,14 @@
 #include "nulla/hls_playlist.hpp"
 #include "nulla/iso_reader.hpp"
 #include "nulla/iso_writer.hpp"
+#include "nulla/log.hpp"
 #include "nulla/mpeg2ts_writer.hpp"
 #include "nulla/playlist.hpp"
+#include "nulla/upload.hpp"
 
 #include <ebucket/bucket_processor.hpp>
 
 #include <elliptics/session.hpp>
-
-#include <swarm/logger.hpp>
 
 #include <thevoid/rapidjson/stringbuffer.h>
 #include <thevoid/rapidjson/prettywriter.h>
@@ -42,42 +42,6 @@
 #include <atomic>
 
 using namespace ioremap;
-
-static void nulla_log(const swarm::logger &logger, swarm::log_level level, const char *fmt, ...) __attribute__ ((format(printf, 3, 4)));
-
-static void nulla_log(const swarm::logger &logger, swarm::log_level level, const char *fmt, ...)
-{
-	auto record = logger.open_record(level);
-	if (record) {
-		va_list args;
-		va_start(args, fmt);
-
-		char buffer[2048];
-		const size_t buffer_size = sizeof(buffer);
-
-		vsnprintf(buffer, buffer_size, fmt, args);
-
-		buffer[buffer_size - 1] = '\0';
-
-		size_t len = strlen(buffer);
-		while (len > 0 && buffer[len - 1] == '\n')
-			buffer[--len] = '\0';
-
-		try {
-			record.attributes.insert(blackhole::keyword::message() = buffer);
-		} catch (...) {
-		}
-		logger.push(std::move(record));
-		va_end(args);
-	}
-}
-
-#define NLOG(level, a...) nulla_log(this->logger(), level, ##a)
-#define NLOG_ERROR(a...) NLOG(SWARM_LOG_ERROR, ##a)
-#define NLOG_WARNING(a...) NLOG(SWARM_LOG_WARNING, ##a)
-#define NLOG_INFO(a...) NLOG(SWARM_LOG_INFO, ##a)
-#define NLOG_NOTICE(a...) NLOG(SWARM_LOG_NOTICE, ##a)
-#define NLOG_DEBUG(a...) NLOG(SWARM_LOG_DEBUG, ##a)
 
 template <typename Server, typename Stream>
 class on_dash_manifest_base : public thevoid::simple_request_stream<Server>, public std::enable_shared_from_this<Stream> {
@@ -900,7 +864,6 @@ public:
 };
 
 
-
 class nulla_server : public thevoid::server<nulla_server>
 {
 public:
@@ -918,6 +881,11 @@ public:
 		on<on_dash_stream<nulla_server>>(
 			options::prefix_match("/stream"),
 			options::methods("GET")
+		);
+
+		on<nulla::on_upload<nulla_server>>(
+			options::prefix_match("/upload"),
+			options::methods("POST", "PUT")
 		);
 
 		return true;
