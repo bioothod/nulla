@@ -35,7 +35,10 @@
 		"localhost:1026:2"
 	],
 	"buckets": [
-		"b1"
+		"b1",
+		"b2",
+		"b3",
+		"b4"
 	],
 	"metadata_groups": [1,2],
 	"tmp_dir": "/tmp",
