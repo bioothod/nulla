@@ -30,6 +30,7 @@
     "monitor-port": 21212,
     "request_header": "X-Request",
     "trace_header": "X-Trace",
+    "log_request_headers": ["User-Agent", "Authorization", "Cookie"],
     "application": {
 	"remotes": [
 		"localhost:1026:2"
