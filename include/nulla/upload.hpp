@@ -292,6 +292,7 @@ private:
 
 		thevoid::http_response reply;
 		reply.set_code(swarm::http_response::ok);
+		reply.headers().set("Access-Control-Allow-Origin", "*");
 		reply.headers().set_content_type("text/json; charset=utf-8");
 		reply.headers().set_content_length(data.size());
 
