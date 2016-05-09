@@ -3,7 +3,7 @@ Name:		nulla
 Version:	0.1.1
 Release:	1%{?dist}
 
-License:	Apache 2.0
+License:	GPL 3.0
 Group:		System Environment/Libraries
 URL:		https://github.com/bioothod/nulla
 Source0:	%{name}-%{version}.tar.bz2
