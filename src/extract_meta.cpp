@@ -133,7 +133,6 @@ int main(int argc, char *argv[])
 	for (auto it = media.tracks.begin(), it_end = media.tracks.end(); it != it_end; ++it) {
 		std::cout << "track: " << it->str() << std::endl;
 	}
-	return 0;
 
 	elliptics::file_logger log(log_file.c_str(), elliptics::file_logger::parse_level(log_level));
 	std::shared_ptr<elliptics::node> node(new elliptics::node(elliptics::logger(log, blackhole::log::attributes_t())));
