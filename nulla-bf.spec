@@ -1,6 +1,6 @@
 Summary:	Nulla Elliptics streaming server
 Name:		nulla
-Version:	0.1.1
+Version:	0.1.2
 Release:	1%{?dist}
 
 License:	GPL 3.0
@@ -50,6 +50,19 @@ rm -rf %{buildroot}
 #%{_libdir}/*.so.*
 
 %changelog
+* Sat May 28 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.1.2
+- sample: parse and store whole track metadata each time parse_track() is called, since it updates video frame rate and possibly other fields
+- extract_meta: try stream reader, if it fails, use whole-file reader
+- sample: serialize track as array, this will allow us to extend it by changing embedded version number
+- iso_reader: added streaming ISO reader which accepts data chunks
+- license: added copyright note
+- Use GPL3 license
+- upload: fixed CORS by setting Access-Control-Allow-Origin header to wildcard '*'
+- config: log some headers
+- server: implemented /upload/ handler which selects bucket and uploads data reading data in chunks, it returns json object which tells where and how file has been stored
+- log: moved logger into own header
+- index.html: added links to initialize stream if autodetection failed
+
 * Tue Mar 08 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.1.1
 - hls: generate correct playlist even if there are no audio/video tracks
 - package: fixed debian/rpm builds
