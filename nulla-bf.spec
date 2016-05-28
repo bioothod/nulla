@@ -22,6 +22,15 @@ repackaging or transcoding, it will generate container in runtime depending on t
 Nulla allows channel muxing, you can stream 5 seconds from file X, then 10 seconds from file Y and so on.
 For more details check http://video.reverbrain.com/index.html
 
+%package devel
+Summary: Development files for %{name}
+Group: Development/Libraries
+Requires: %{name} = %{version}-%{release}
+
+%description devel
+Nulla is an adaptive MPEG-DASH/HLS streaming server for Elliptics distributed storage.
+This package provides development files needed to implement streaming server in your application.
+
 %prep
 %setup -q
 
@@ -38,7 +47,6 @@ make install DESTDIR=%{buildroot}
 %post -p /sbin/ldconfig
 %postun -p /sbin/ldconfig
 
-
 %clean
 rm -rf %{buildroot}
 
@@ -48,6 +56,11 @@ rm -rf %{buildroot}
 %doc conf/*
 %{_bindir}/*
 #%{_libdir}/*.so.*
+
+%files devel
+%defattr(-,root,root,-)
+%{_includedir}/*
+%{_datadir}/nulla/cmake/*
 
 %changelog
 * Sat May 28 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.1.2

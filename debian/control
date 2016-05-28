@@ -40,3 +40,29 @@ Package: nulla-dbg
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Debug symbols for nulla - adaptive MPEG-DASH/HLS streaming server for Elliptics distributed storage.
+
+Package: nulla-dev
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends},
+ libboost-dev,
+ libboost-system-dev,
+ libboost-program-options-dev,
+ libboost-filesystem-dev,
+ elliptics-dev,
+ elliptics-client,
+ libmsgpack-dev,
+ libswarm3-dev,
+ libthevoid3-dev,
+ libgpac-dev (>= 0.6.0),
+ libavcodec-dev (>= 2.6.8),
+ libavcodec-ffmpeg56 (>= 2.6.8),
+ libavfilter-dev (>= 2.6.8),
+ libavfilter-ffmpeg5 (>= 2.6.8),
+ libavformat-dev (>= 2.6.8),
+ libavformat-ffmpeg56 (>= 2.6.8),
+ libavutil-dev (>= 2.6.8),
+ libavutil-ffmpeg54 (>= 2.6.8)
+Description: Development files for Nulla elliptics streaming service.
+ Nulla is an adaptive MPEG-DASH/HLS streaming server for Elliptics distributed storage.
+ This package provides development files needed to implement streaming server in your application.
+

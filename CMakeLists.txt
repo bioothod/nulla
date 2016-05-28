@@ -14,17 +14,21 @@ string(REGEX MATCH "([0-9]+\\.[0-9]+$)" NULLA_VERSION_MINOR "${DEBFULLVERSION}")
 
 include(cmake/locate_library.cmake)
 
-LOCATE_LIBRARY(THEVOID "thevoid/server.hpp" "thevoid")
-LOCATE_LIBRARY(SWARM "swarm/http_response.hpp" "swarm")
-LOCATE_LIBRARY(MSGPACK "msgpack.hpp" "msgpack")
-LOCATE_LIBRARY(GPAC "gpac/isomedia.h" "gpac")
-LOCATE_LIBRARY(AVFORMAT "libavformat/avformat.h" "avformat" "ffmpeg")
 LOCATE_LIBRARY(AVCODEC "libavcodec/avcodec.h" "avcodec" "ffmpeg")
+LOCATE_LIBRARY(AVFORMAT "libavformat/avformat.h" "avformat" "ffmpeg")
 LOCATE_LIBRARY(AVUTIL "libavutil/error.h" "avutil" "ffmpeg")
 LOCATE_HEADERS(EBUCKET "ebucket/bucket.hpp")
+LOCATE_LIBRARY(GPAC "gpac/isomedia.h" "gpac")
+LOCATE_LIBRARY(MSGPACK "msgpack.hpp" "msgpack")
+LOCATE_LIBRARY(SWARM "swarm/http_response.hpp" "swarm")
+LOCATE_LIBRARY(THEVOID "thevoid/server.hpp" "thevoid")
 
 find_package(Boost COMPONENTS system thread filesystem program_options REQUIRED)
 find_package(Elliptics REQUIRED)
+
+configure_file(cmake/NullaConfig.cmake.in "${PROJECT_BINARY_DIR}/cmake/NullaConfig.cmake" @ONLY)
+install(FILES "${PROJECT_BINARY_DIR}/cmake/NullaConfig.cmake"
+	DESTINATION share/nulla/cmake)
 
 include_directories(
 	"${CMAKE_CURRENT_SOURCE_DIR}/include"
