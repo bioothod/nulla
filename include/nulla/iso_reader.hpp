@@ -28,6 +28,8 @@ struct media {
 
 class iso_reader {
 public:
+	iso_reader() {}
+
 	iso_reader(const char *filename) {
 		gf_sys_init(GF_FALSE);
 		gf_log_set_tool_level(GF_LOG_ALL, GF_LOG_WARNING);
@@ -42,39 +44,29 @@ public:
 			throw std::runtime_error(ss.str());
 		}
 	}
-	~iso_reader() {
+	virtual ~iso_reader() {
 		gf_isom_close(m_movie);
 		gf_sys_close();
 	}
 
-	int parse() {
-		GF_Err e;
+	int parse_meta() {
+		GF_Err e = GF_BUFFER_TOO_SMALL;
 
 		// tracks start from 1
 		for (u32 i = 1; i <= gf_isom_get_track_count(m_movie); i++) {
 			nulla::track t;
 
 			t.number = i;
-			t.id = gf_isom_get_track_id(m_movie, i);
+			t.id = gf_isom_get_track_id(m_movie, t.number);
 
-			t.media_type = gf_isom_get_media_type(m_movie, i);
-			t.media_subtype = gf_isom_get_media_subtype(m_movie, i, 1);
-			t.media_subtype_mpeg4 = gf_isom_get_mpeg4_subtype(m_movie, i, 1);
-			t.media_timescale = gf_isom_get_media_timescale(m_movie, i);
-			t.media_duration = gf_isom_get_media_duration(m_movie, i);
+			t.media_type = gf_isom_get_media_type(m_movie, t.number);
+			t.media_subtype = gf_isom_get_media_subtype(m_movie, t.number, 1);
+			t.media_subtype_mpeg4 = gf_isom_get_mpeg4_subtype(m_movie, t.number, 1);
+			t.media_timescale = gf_isom_get_media_timescale(m_movie, t.number);
 
 			t.timescale = gf_isom_get_timescale(m_movie);
-			t.duration = gf_isom_get_track_duration(m_movie, i);
+			t.data_size = gf_isom_get_media_data_size(m_movie, t.number);
 
-			float duration;
-			if (t.duration && t.timescale) {
-				duration = (float)t.duration / (float)t.timescale;
-			} else if (t.media_duration && t.media_timescale) {
-				duration = (float)t.media_duration / (float)t.media_timescale;
-			} else {
-				duration = 1;
-			}
-			t.bandwidth = gf_isom_get_media_data_size(m_movie, i) * 8 / duration;
 
 			switch (t.media_type) {
 			case GF_ISOM_MEDIA_AUDIO:
@@ -106,19 +98,53 @@ public:
 			char codec[128];
 			e = gf_media_get_rfc_6381_codec_name(m_movie, i, codec, GF_FALSE, GF_FALSE);
 			if (e != GF_OK) {
-				std::ostringstream ss;
-				ss << "could not get codec name: " << gf_error_to_string(e);
-				throw std::runtime_error(ss.str());
+				return e;
 			}
+
 			t.codec.assign(codec);
+			m_media.tracks.emplace_back(t);
+		}
+
+		return (int)e;
+	}
+
+	int parse_tracks() {
+		GF_Err e = GF_BUFFER_TOO_SMALL;
+
+		for (auto &t: m_media.tracks) {
+			u64 media_duration = gf_isom_get_media_duration(m_movie, t.number);
+			u64 tduration = gf_isom_get_track_duration(m_movie, t.number);
+
+			if (media_duration != 0)
+				t.media_duration = media_duration;
+			if (tduration != 0)
+				t.duration = tduration;
+
+			float duration;
+			if (t.duration && t.timescale) {
+				duration = (float)t.duration / (float)t.timescale;
+			} else if (t.media_duration && t.media_timescale) {
+				duration = (float)t.media_duration / (float)t.media_timescale;
+			} else {
+				duration = 1;
+			}
+			t.bandwidth = t.data_size * 8 / duration;
 
 			e = parse_track(t);
-			if (e == GF_OK) {
-				m_media.tracks.emplace_back(t);
+			if (e != GF_OK) {
+				return (int)e;
 			}
 		}
 
 		return 0;
+	}
+
+	int parse() {
+		int err = parse_meta();
+		if (err)
+			return err;
+
+		return parse_tracks();
 	}
 
 	std::string pack() const {
@@ -133,7 +159,7 @@ public:
 		return m_media;
 	}
 
-private:
+protected:
 	GF_ISOFile *m_movie;
 	media m_media;
 
@@ -188,6 +214,133 @@ private:
 	}
 };
 
+class iso_memory_reader : public iso_reader
+{
+public:
+	iso_memory_reader(const char *ptr, size_t size) {
+		gf_sys_init(GF_FALSE);
+		gf_log_set_tool_level(GF_LOG_ALL, GF_LOG_WARNING);
+
+		GF_Err e;
+		u64 missing_bytes = 0;
+
+		m_cached.insert(m_cached.end(), ptr, ptr + size);
+
+		char buf[128];
+		snprintf(buf, sizeof(buf), "gmem://%ld@%p", m_cached.size(), m_cached.data());
+
+		e = gf_isom_open_progressive(buf, 0, 0, &m_movie, &missing_bytes);
+		if (m_movie == NULL || (e != GF_OK && e != GF_ISOM_INCOMPLETE_FILE)) {
+			std::ostringstream ss;
+			ss << "could not open region of memory"
+				", buffer: " << buf <<
+				", error: " << gf_error_to_string(e) << ", code: " << e <<
+				", missing_bytes: " << missing_bytes;
+			throw std::runtime_error(ss.str());
+		}
+
+		int err = parse_meta();
+		if (err) {
+			std::ostringstream ss;
+			ss << "could not parse metadata, buffer: " << buf << ", error: " << gf_error_to_string((GF_Err)e);
+			throw std::runtime_error(ss.str());
+		}
+
+		err = parse_tracks();
+		if (err) {
+			std::ostringstream ss;
+			ss << "could not parse tracks, buffer: " << buf << ", error: " << gf_error_to_string((GF_Err)e);
+			throw std::runtime_error(ss.str());
+		}
+
+		if (m_media.tracks.empty()) {
+			std::ostringstream ss;
+			ss << "invalid buffer (probably too small), could not find track metadata, buffer: " << buf;
+			throw std::runtime_error(ss.str());
+		}
+
+		err = cleanup();
+		if (err) {
+			std::ostringstream ss;
+			ss << "could not cleanup stream, buffer: " << buf << ", error: " << gf_error_to_string((GF_Err)e);
+			throw std::runtime_error(ss.str());
+		}
+	}
+
+	void feed(const char *ptr, size_t size) {
+		GF_Err e;
+		u64 missing_bytes;
+
+		m_cached.insert(m_cached.end(), ptr, ptr + size);
+
+		char buf[128];
+		snprintf(buf, sizeof(buf), "gmem://%ld@%p", m_cached.size(), m_cached.data());
+
+		e = gf_isom_refresh_fragmented(m_movie, &missing_bytes, buf);
+		if (e != GF_OK && e != GF_ISOM_INCOMPLETE_FILE) {
+			std::ostringstream ss;
+			ss << "could not refresh stream: " << buf <<
+				": missing bytes: " << missing_bytes <<
+				", error: " << gf_error_to_string(e);
+			throw std::runtime_error(ss.str());
+		}
+
+		int err = parse_tracks();
+		if (err) {
+			std::ostringstream ss;
+			ss << "could not parse tracks: " << buf <<
+				": missing bytes: " << missing_bytes <<
+				", error: " << gf_error_to_string((GF_Err)e);
+			throw std::runtime_error(ss.str());
+		}
+
+		err = cleanup();
+		if (err != GF_OK) {
+			std::ostringstream ss;
+			ss << "could not cleanup stream: " << buf <<
+				", error: " << gf_error_to_string((GF_Err)e);
+			throw std::runtime_error(ss.str());
+		}
+	}
+
+	int cleanup() {
+		u64 new_buffer_start = 0;
+		u64 missing_bytes;
+
+		/* release internal structures associated with the samples read so far */
+		gf_isom_reset_tables(m_movie, GF_TRUE);
+
+		/* release the associated input data as well */
+		GF_Err e = gf_isom_reset_data_offset(m_movie, &new_buffer_start);
+		if (e != GF_OK) {
+			fprintf(stdout, "could not reset data offset: data_size: %ld, new_buffer_start: %ld, error: %s [%d]\n",
+				m_cached.size(), new_buffer_start, gf_error_to_string(e), e);
+			return (int)e;
+		}
+#if 0
+		fprintf(stdout, "cleanup: resize: data offset: data_size: %ld, new_buffer_start: %ld, error: %s [%d]\n",
+				m_cached.size(), new_buffer_start, gf_error_to_string(e), e);
+#endif
+		if (new_buffer_start < m_cached.size()) {
+			memmove((char *)m_cached.data(), (char *)m_cached.data() + new_buffer_start, m_cached.size() - new_buffer_start);
+			m_cached.resize(m_cached.size() - new_buffer_start);
+		}
+
+		char buf[128];
+		snprintf(buf, sizeof(buf), "gmem://%ld@%p", m_cached.size(), m_cached.data());
+		e = gf_isom_refresh_fragmented(m_movie, &missing_bytes, buf);
+		if (e != GF_OK && e != GF_ISOM_INCOMPLETE_FILE) {
+			fprintf(stdout, "cleanup: resize: could not refresh fragmented mp4, buf: %s, missing_bytes: %ld, error: %s [%d]\n",
+					buf, missing_bytes, gf_error_to_string(e), e);
+			return (int)e;
+		}
+
+		return GF_OK;
+	}
+
+private:
+	std::vector<char> m_cached;
+};
 
 }} // namespace ioremap::nulla
 
