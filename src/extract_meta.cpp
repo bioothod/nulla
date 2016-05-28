@@ -3,11 +3,74 @@
 #include <ebucket/bucket_processor.hpp>
 
 #include <algorithm>
+#include <fstream>
 #include <iostream>
 
 #include <boost/program_options.hpp>
 
 using namespace ioremap;
+
+static void stream_reader(const std::string &file, std::string &meta, nulla::media &media) {
+	std::cout << "Trying stream reader..." << std::endl;
+
+	try {
+		std::unique_ptr<nulla::iso_memory_reader> reader;
+
+		std::ifstream in(file.c_str());
+		if (!in) {
+			std::ostringstream ss;
+			ss << "could not open file " << file << ", error: " << strerror(errno);
+			throw std::runtime_error(ss.str());
+		}
+
+		in.seekg(0, in.end);
+		size_t length = in.tellg();
+		size_t pos = 0;
+		in.seekg(0, in.beg);
+
+		std::vector<char> tmp(1024 * 64);
+
+		while (pos < length) {
+			in.read((char *)tmp.data(), tmp.size());
+			if (in.gcount() != 0) {
+				if (!reader) {
+					reader.reset(new nulla::iso_memory_reader(tmp.data(), in.gcount()));
+				} else {
+					reader->feed(tmp.data(), in.gcount());
+				}
+
+				pos += in.gcount();
+			}
+			if (in.eof())
+				break;
+
+			if (!in.good()) {
+				std::ostringstream ss;
+				ss << "could not read data from file " << file << ", error: " << strerror(errno);
+				throw std::runtime_error(ss.str());
+			}
+		}
+
+		meta = reader->pack();
+		media = reader->get_media();
+	} catch (const std::exception &e) {
+		std::cerr << "Stream reader has failed: " << e.what() << std::endl;
+	}
+}
+
+static void file_reader(const std::string &file, std::string &meta, nulla::media &media) {
+	std::cout << "Trying whole-file reader..." << std::endl;
+
+	try {
+		nulla::iso_reader reader(file.c_str());
+		reader.parse();
+
+		meta = reader.pack();
+		media = reader.get_media();
+	} catch (const std::exception &e) {
+		std::cerr << "Whole-file reader has failed: " << e.what() << std::endl;
+	}
+}
 
 int main(int argc, char *argv[])
 {
@@ -54,21 +117,23 @@ int main(int argc, char *argv[])
 	}
 
 	std::string meta;
-	try {
-		nulla::iso_reader reader(file.c_str());
-		int err = reader.parse();
-		if (err < 0)
-			return err;
+	nulla::media media;
 
-		meta = reader.pack();
-		std::cout << "Reader has loaded " << meta.size() << " bytes of metadata from " << file << std::endl;
-		for (auto it = reader.get_media().tracks.begin(), it_end = reader.get_media().tracks.end(); it != it_end; ++it) {
-			std::cout << "track: " << it->str() << std::endl;
-		}
-	} catch (const std::exception &e) {
-		std::cerr << "could not parse " << file << ": " << e.what() << std::endl;
+	stream_reader(file, meta, media);
+	if (meta.empty()) {
+		file_reader(file, meta, media);
+	}
+
+	if (meta.empty()) {
+		std::cerr << "Could not parse " << file << ", exiting..." << std::endl;
 		return -1;
 	}
+
+	std::cout << "Reader has loaded " << meta.size() << " bytes of metadata from " << file << std::endl;
+	for (auto it = media.tracks.begin(), it_end = media.tracks.end(); it != it_end; ++it) {
+		std::cout << "track: " << it->str() << std::endl;
+	}
+	return 0;
 
 	elliptics::file_logger log(log_file.c_str(), elliptics::file_logger::parse_level(log_level));
 	std::shared_ptr<elliptics::node> node(new elliptics::node(elliptics::logger(log, blackhole::log::attributes_t())));
