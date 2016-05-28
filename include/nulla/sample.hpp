@@ -192,6 +192,10 @@ struct esd {
 };
 
 struct track {
+	enum {
+		serialize_version_1 = 1,
+	};
+
 	u32		media_type = 0;
 	u32		media_subtype = 0;
 	u32		media_subtype_mpeg4 = 0;
@@ -207,14 +211,53 @@ struct track {
 	u32		timescale = 0;
 	u64		duration = 0;
 
+	u64		data_size = 0;
 	u32		bandwidth = 0;
 
-	struct {
+	struct audio {
 		u32	sample_rate = 0;
 		u32	channels = 0;
 		u8	bps = 0; // bits per sample (!), not per second (!!)
 
-		MSGPACK_DEFINE(sample_rate, channels, bps);
+		enum {
+			serialize_version_1 = 1,
+		};
+
+		template <typename Stream>
+		void msgpack_pack(msgpack::packer<Stream> &o) const {
+			o.pack_array(4);
+			o.pack((int)audio::serialize_version_1);
+			o.pack(sample_rate);
+			o.pack(channels);
+			o.pack(bps);
+		}
+
+		void msgpack_unpack(msgpack::object o) {
+			if (o.type != msgpack::type::ARRAY) {
+				std::ostringstream ss;
+				ss << "could not unpack audio, object type is " << o.type <<
+					", must be array (" << msgpack::type::ARRAY << ")";
+				throw std::runtime_error(ss.str());
+			}
+
+			int version;
+
+			msgpack::object *p = o.via.array.ptr;
+			p[0].convert(&version);
+
+			switch (version) {
+			case audio::serialize_version_1:
+				p[1].convert(&sample_rate);
+				p[2].convert(&channels);
+				p[3].convert(&bps);
+				break;
+			default: {
+				std::ostringstream ss;
+				ss << "could not unpack audio, invalid version " << version;
+				throw std::runtime_error(ss.str());
+			}
+			}
+		}
 
 		std::string str() const {
 			std::ostringstream ss;
@@ -231,12 +274,56 @@ struct track {
 		}
 	} audio;
 
-	struct {
+	struct video {
 		u32	width = 0, height = 0;
 		u32	fps_num = 0, fps_denum = 0;
 		u32	sar_w = 0, sar_h = 0;
 
-		MSGPACK_DEFINE(width, height, fps_num, fps_denum, sar_w, sar_h);
+		enum {
+			serialize_version_1 = 1,
+		};
+
+		template <typename Stream>
+		void msgpack_pack(msgpack::packer<Stream> &o) const {
+			o.pack_array(7);
+			o.pack((int)video::serialize_version_1);
+			o.pack(width);
+			o.pack(height);
+			o.pack(fps_num);
+			o.pack(fps_denum);
+			o.pack(sar_w);
+			o.pack(sar_h);
+		}
+
+		void msgpack_unpack(msgpack::object o) {
+			if (o.type != msgpack::type::ARRAY) {
+				std::ostringstream ss;
+				ss << "could not unpack video, object type is " << o.type <<
+					", must be array (" << msgpack::type::ARRAY << ")";
+				throw std::runtime_error(ss.str());
+			}
+
+			int version;
+
+			msgpack::object *p = o.via.array.ptr;
+			p[0].convert(&version);
+
+			switch (version) {
+			case video::serialize_version_1:
+				p[1].convert(&width);
+				p[2].convert(&height);
+				p[3].convert(&fps_num);
+				p[4].convert(&fps_denum);
+				p[5].convert(&sar_w);
+				p[6].convert(&sar_h);
+				break;
+			default: {
+				std::ostringstream ss;
+				ss << "could not unpack video, invalid version " << version;
+				throw std::runtime_error(ss.str());
+			}
+			}
+		}
 
 		std::string str() const {
 			std::ostringstream ss;
@@ -257,15 +344,6 @@ struct track {
 	nulla::esd esd;
 
 	std::vector<sample>	samples;
-
-	MSGPACK_DEFINE(media_type, media_subtype, media_subtype_mpeg4, media_timescale, media_duration,
-			mime_type, codec,
-			id, number,
-			timescale, duration,
-			bandwidth,
-			audio, video,
-			esd,
-			samples);
 
 	ssize_t sample_position_from_dts(u64 dts, bool want_rap) const {
 		return nulla::sample_position_from_dts(samples, dts, want_rap);
@@ -297,6 +375,70 @@ struct track {
 		   ;
 
 		return ss.str();
+	}
+
+	template <typename Stream>
+	void msgpack_pack(msgpack::packer<Stream> &o) const {
+		o.pack_array(18);
+		o.pack((int)track::serialize_version_1);
+		o.pack(media_type);
+		o.pack(media_subtype);
+		o.pack(media_subtype_mpeg4);
+		o.pack(media_timescale);
+		o.pack(media_duration);
+		o.pack(mime_type);
+		o.pack(codec);
+		o.pack(id);
+		o.pack(number);
+		o.pack(timescale);
+		o.pack(duration);
+		o.pack(bandwidth);
+		o.pack(data_size);
+		o.pack(audio);
+		o.pack(video);
+		o.pack(esd);
+		o.pack(samples);
+	}
+
+	void msgpack_unpack(msgpack::object o) {
+		if (o.type != msgpack::type::ARRAY) {
+			std::ostringstream ss;
+			ss << "could not unpack track, object type is " << o.type <<
+				", must be array (" << msgpack::type::ARRAY << ")";
+			throw std::runtime_error(ss.str());
+		}
+
+		int version;
+
+		msgpack::object *p = o.via.array.ptr;
+		p[0].convert(&version);
+
+		switch (version) {
+		case track::serialize_version_1:
+			p[1].convert(&media_type);
+			p[2].convert(&media_subtype);
+			p[3].convert(&media_subtype_mpeg4);
+			p[4].convert(&media_timescale);
+			p[5].convert(&media_duration);
+			p[6].convert(&mime_type);
+			p[7].convert(&codec);
+			p[8].convert(&id);
+			p[9].convert(&number);
+			p[10].convert(&timescale);
+			p[11].convert(&duration);
+			p[12].convert(&bandwidth);
+			p[13].convert(&data_size);
+			p[14].convert(&audio);
+			p[15].convert(&video);
+			p[16].convert(&esd);
+			p[17].convert(&samples);
+			break;
+		default: {
+			std::ostringstream ss;
+			ss << "could not unpack track, invalid version " << version;
+			throw std::runtime_error(ss.str());
+		}
+		}
 	}
 };
 
