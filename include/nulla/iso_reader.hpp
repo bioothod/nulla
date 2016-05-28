@@ -57,51 +57,8 @@ public:
 			nulla::track t;
 
 			t.number = i;
-			t.id = gf_isom_get_track_id(m_movie, t.number);
+			parse_track_metadata(t);
 
-			t.media_type = gf_isom_get_media_type(m_movie, t.number);
-			t.media_subtype = gf_isom_get_media_subtype(m_movie, t.number, 1);
-			t.media_subtype_mpeg4 = gf_isom_get_mpeg4_subtype(m_movie, t.number, 1);
-			t.media_timescale = gf_isom_get_media_timescale(m_movie, t.number);
-
-			t.timescale = gf_isom_get_timescale(m_movie);
-			t.data_size = gf_isom_get_media_data_size(m_movie, t.number);
-
-
-			switch (t.media_type) {
-			case GF_ISOM_MEDIA_AUDIO:
-				t.mime_type = "audio/mp4";
-				gf_isom_get_audio_info(m_movie, i, 1, &t.audio.sample_rate, &t.audio.channels, &t.audio.bps);
-
-				break;
-			case GF_ISOM_MEDIA_VISUAL:
-				t.mime_type = "video/mp4";
-
-				gf_isom_get_visual_info(m_movie, i, 1, &t.video.width, &t.video.height);
-				t.video.fps_num = gf_isom_get_media_timescale(m_movie, i);
-				t.video.fps_denum = gf_isom_get_sample_duration(m_movie, i, 2);
-
-				gf_isom_get_pixel_aspect_ratio(m_movie, i, 1, &t.video.sar_w, &t.video.sar_h);
-
-				break;
-			default:
-				t.mime_type = "weird/mp4";
-				break;
-			}
-
-			GF_ESD *esd = gf_isom_get_esd(m_movie, i, 1);
-			if (esd) {
-				t.esd = nulla::esd(esd);
-			}
-			gf_odf_desc_del((GF_Descriptor *)esd);
-
-			char codec[128];
-			e = gf_media_get_rfc_6381_codec_name(m_movie, i, codec, GF_FALSE, GF_FALSE);
-			if (e != GF_OK) {
-				return e;
-			}
-
-			t.codec.assign(codec);
 			m_media.tracks.emplace_back(t);
 		}
 
@@ -112,25 +69,12 @@ public:
 		GF_Err e = GF_BUFFER_TOO_SMALL;
 
 		for (auto &t: m_media.tracks) {
-			u64 media_duration = gf_isom_get_media_duration(m_movie, t.number);
-			u64 tduration = gf_isom_get_track_duration(m_movie, t.number);
-
-			if (media_duration != 0)
-				t.media_duration = media_duration;
-			if (tduration != 0)
-				t.duration = tduration;
-
-			float duration;
-			if (t.duration && t.timescale) {
-				duration = (float)t.duration / (float)t.timescale;
-			} else if (t.media_duration && t.media_timescale) {
-				duration = (float)t.media_duration / (float)t.media_timescale;
-			} else {
-				duration = 1;
+			e = parse_track_metadata(t);
+			if (e != GF_OK) {
+				return (int)e;
 			}
-			t.bandwidth = t.data_size * 8 / duration;
 
-			e = parse_track(t);
+			e = parse_track_samples(t);
 			if (e != GF_OK) {
 				return (int)e;
 			}
@@ -163,7 +107,75 @@ protected:
 	GF_ISOFile *m_movie;
 	media m_media;
 
-	GF_Err parse_track(track &t) {
+	GF_Err parse_track_metadata(nulla::track &t) {
+		GF_Err e;
+
+		u64 media_duration = gf_isom_get_media_duration(m_movie, t.number);
+		u64 tduration = gf_isom_get_track_duration(m_movie, t.number);
+
+		if (media_duration == 0)
+			return GF_OK;
+
+		t.id = gf_isom_get_track_id(m_movie, t.number);
+
+		t.media_type = gf_isom_get_media_type(m_movie, t.number);
+		t.media_subtype = gf_isom_get_media_subtype(m_movie, t.number, 1);
+		t.media_subtype_mpeg4 = gf_isom_get_mpeg4_subtype(m_movie, t.number, 1);
+		t.media_timescale = gf_isom_get_media_timescale(m_movie, t.number);
+		t.media_duration = media_duration;
+
+		t.timescale = gf_isom_get_timescale(m_movie);
+		t.duration = tduration;
+		t.data_size = gf_isom_get_media_data_size(m_movie, t.number);
+
+		float duration;
+		if (t.duration && t.timescale) {
+			duration = (float)t.duration / (float)t.timescale;
+		} else if (t.media_duration && t.media_timescale) {
+			duration = (float)t.media_duration / (float)t.media_timescale;
+		} else {
+			duration = 1;
+		}
+		t.bandwidth = t.data_size * 8 / duration;
+
+		switch (t.media_type) {
+		case GF_ISOM_MEDIA_AUDIO:
+			t.mime_type = "audio/mp4";
+			gf_isom_get_audio_info(m_movie, t.number, 1, &t.audio.sample_rate, &t.audio.channels, &t.audio.bps);
+
+			break;
+		case GF_ISOM_MEDIA_VISUAL:
+			t.mime_type = "video/mp4";
+
+			gf_isom_get_visual_info(m_movie, t.number, 1, &t.video.width, &t.video.height);
+			t.video.fps_num = gf_isom_get_media_timescale(m_movie, t.number);
+			t.video.fps_denum = gf_isom_get_sample_duration(m_movie, t.number, 2);
+
+			gf_isom_get_pixel_aspect_ratio(m_movie, t.number, 1, &t.video.sar_w, &t.video.sar_h);
+
+			break;
+		default:
+			t.mime_type = "weird/mp4";
+			break;
+		}
+
+		GF_ESD *esd = gf_isom_get_esd(m_movie, t.number, 1);
+		if (esd) {
+			t.esd = nulla::esd(esd);
+		}
+		gf_odf_desc_del((GF_Descriptor *)esd);
+
+		char codec[128];
+		e = gf_media_get_rfc_6381_codec_name(m_movie, t.number, codec, GF_FALSE, GF_FALSE);
+		if (e != GF_OK) {
+			return e;
+		}
+
+		t.codec.assign(codec);
+		return GF_OK;
+	}
+
+	GF_Err parse_track_samples(track &t) {
 		GF_ISOSample *iso_sample;
 		u32 sample_count;
 		u32 di; /*descriptor index*/
@@ -246,16 +258,16 @@ public:
 			throw std::runtime_error(ss.str());
 		}
 
+		if (m_media.tracks.empty()) {
+			std::ostringstream ss;
+			ss << "invalid buffer (probably too small), could not find track metadata, buffer: " << buf;
+			throw std::runtime_error(ss.str());
+		}
+
 		err = parse_tracks();
 		if (err) {
 			std::ostringstream ss;
 			ss << "could not parse tracks, buffer: " << buf << ", error: " << gf_error_to_string((GF_Err)e);
-			throw std::runtime_error(ss.str());
-		}
-
-		if (m_media.tracks.empty()) {
-			std::ostringstream ss;
-			ss << "invalid buffer (probably too small), could not find track metadata, buffer: " << buf;
 			throw std::runtime_error(ss.str());
 		}
 
