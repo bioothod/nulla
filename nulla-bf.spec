@@ -1,6 +1,6 @@
 Summary:	Nulla Elliptics streaming server
 Name:		nulla
-Version:	0.1.2
+Version:	0.1.3
 Release:	1%{?dist}
 
 License:	GPL 3.0
@@ -63,6 +63,10 @@ rm -rf %{buildroot}
 %{_datadir}/nulla/cmake/*
 
 %changelog
+* Sat May 28 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.1.3
+- Added cmake config file and nulla-dev/-devel package which includes headers and cmake
+- extract_meta: remove temporal knob which disabled elliptics upload of the metadata
+
 * Sat May 28 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.1.2
 - sample: parse and store whole track metadata each time parse_track() is called, since it updates video frame rate and possibly other fields
 - extract_meta: try stream reader, if it fails, use whole-file reader

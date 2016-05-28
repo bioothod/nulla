@@ -1,3 +1,10 @@
+nulla (0.1.3) unstable; urgency=low
+
+  * Added cmake config file and nulla-dev/-devel package which includes headers and cmake
+  * extract_meta: remove temporal knob which disabled elliptics upload of the metadata
+
+ -- Evgeniy Polyakov <zbr@ioremap.net>  Sat, 28 May 2016 21:43:03 +0400
+
 nulla (0.1.2) unstable; urgency=low
 
   * sample: parse and store whole track metadata each time parse_track() is called, since it updates video frame rate and possibly other fields
