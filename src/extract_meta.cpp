@@ -1,4 +1,5 @@
 #include "nulla/iso_reader.hpp"
+#include "nulla/utils.hpp"
 
 #include <ebucket/bucket_processor.hpp>
 
@@ -88,12 +89,12 @@ int main(int argc, char *argv[])
 	std::string log_file, log_level, groups;
 	bpo::options_description ell("Elliptics options");
 	ell.add_options()
-		("remote", bpo::value<std::vector<std::string>>(&remotes)->required()->composing(), "remote node: addr:port:family")
+		("remote", bpo::value<std::vector<std::string>>(&remotes)->composing(), "remote node: addr:port:family")
 		("log-file", bpo::value<std::string>(&log_file)->default_value("/dev/stdout"), "log file")
 		("log-level", bpo::value<std::string>(&log_level)->default_value("error"), "log level: error, info, notice, debug")
-		("groups", bpo::value<std::string>(&groups)->required(), "groups where bucket metadata is stored: 1:2:3")
-		("bucket", bpo::value<std::string>(&bname)->required(), "use this bucket to store metadata")
-		("key", bpo::value<std::string>(&key)->required(), "use this key to store metadata")
+		("metagroups", bpo::value<std::string>(&groups), "groups where bucket metadata is stored: 1:2:3")
+		("bucket", bpo::value<std::string>(&bname), "use this bucket to store metadata")
+		("key", bpo::value<std::string>(&key), "name of the file uploaded into storage")
 		("file", bpo::value<std::string>(&file)->required(), "parse this MP4 file")
 		;
 
@@ -134,6 +135,10 @@ int main(int argc, char *argv[])
 		std::cout << "track: " << it->str() << std::endl;
 	}
 
+	if (remotes.empty() || groups.empty() || bname.empty() || key.empty()) {
+		return 0;
+	}
+
 	elliptics::file_logger log(log_file.c_str(), elliptics::file_logger::parse_level(log_level));
 	std::shared_ptr<elliptics::node> node(new elliptics::node(elliptics::logger(log, blackhole::log::attributes_t())));
 
@@ -156,7 +161,7 @@ int main(int argc, char *argv[])
 
 	elliptics::session s = b->session();
 
-	auto ret = s.write_data(key, meta, 0);
+	auto ret = s.write_data(nulla::metadata_key(key), meta, 0);
 	ret.wait();
 	if (!ret.is_valid() || ret.error()) {
 		std::cerr << "Could not write data into bucket " << b->name() <<

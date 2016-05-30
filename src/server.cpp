@@ -24,6 +24,7 @@
 #include "nulla/mpeg2ts_writer.hpp"
 #include "nulla/playlist.hpp"
 #include "nulla/upload.hpp"
+#include "nulla/utils.hpp"
 
 #include <ebucket/bucket_processor.hpp>
 
@@ -94,7 +95,7 @@ public:
 					return;
 				}
 
-				b->session().read_data(track_it->key + ".meta", 0, 0).connect(
+				b->session().read_data(nulla::metadata_key(track_it->key), 0, 0).connect(
 					std::bind(&on_dash_manifest_base::on_read_meta,
 						this->shared_from_this(), repr_it->first, track_position,
 						std::placeholders::_1, std::placeholders::_2));
@@ -650,9 +651,9 @@ public:
 				return;
 			}
 
-			std::string init_key = tr.key + ".meta";
+			std::string init_key = nulla::metadata_key(tr.key);
 			NLOG_INFO("%s: playlist_id: %s, init request, bucket: %s, key: %s",
-					__func__, playlist_id.c_str(), tr.bucket.c_str(), init_key.c_str());
+					__func__, playlist_id.c_str(), tr.bucket.c_str(), tr.key.c_str());
 
 			b->session().read_data(init_key, 0, 0).connect(std::bind(&on_dash_stream_base::on_read_init,
 				this->shared_from_this(), std::cref(tr), std::placeholders::_1, std::placeholders::_2));
