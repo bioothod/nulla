@@ -24,6 +24,46 @@ struct media {
 	};
 
 	std::vector<track>		tracks;
+
+	template <typename Stream>
+	void msgpack_pack(msgpack::packer<Stream> &o) const {
+		o.pack_array(serialization_version_2);
+		o.pack((int)serialization_version_2);
+		o.pack(tracks);
+	}
+	void msgpack_unpack(msgpack::object o) {
+		if (o.type != msgpack::type::ARRAY) {
+			std::ostringstream ss;
+			ss << "page unpack: type: " << o.type <<
+				", must be: " << msgpack::type::ARRAY <<
+				", size: " << o.via.array.size;
+			throw std::runtime_error(ss.str());
+		}
+
+		msgpack::object *p = o.via.array.ptr;
+		const uint32_t size = o.via.array.size;
+		uint16_t version = 0;
+		p[0].convert(&version);
+		switch (version) {
+		case ioremap::nulla::media::serialization_version_2: {
+			if (size != ioremap::nulla::media::serialization_version_2) {
+				std::ostringstream ss;
+				ss << "page unpack: array size mismatch: read: " << size <<
+					", must be: " << ioremap::nulla::media::serialization_version_2;
+				throw std::runtime_error(ss.str());
+			}
+
+			p[1].convert(&tracks);
+			break;
+		}
+		default: {
+			std::ostringstream ss;
+			ss << "page unpack: version mismatch: read: " << version <<
+				", there is no such packing version ";
+			throw std::runtime_error(ss.str());
+		}
+		}
+	}
 };
 
 class iso_reader {
@@ -355,56 +395,5 @@ private:
 };
 
 }} // namespace ioremap::nulla
-
-namespace msgpack {
-static inline ioremap::nulla::media &operator >>(msgpack::object o, ioremap::nulla::media &meta)
-{
-	if (o.type != msgpack::type::ARRAY) {
-		std::ostringstream ss;
-		ss << "page unpack: type: " << o.type <<
-			", must be: " << msgpack::type::ARRAY <<
-			", size: " << o.via.array.size;
-		throw std::runtime_error(ss.str());
-	}
-
-	object *p = o.via.array.ptr;
-	const uint32_t size = o.via.array.size;
-	uint16_t version = 0;
-	p[0].convert(&version);
-	switch (version) {
-	case ioremap::nulla::media::serialization_version_2: {
-		if (size != ioremap::nulla::media::serialization_version_2) {
-			std::ostringstream ss;
-			ss << "page unpack: array size mismatch: read: " << size <<
-				", must be: " << ioremap::nulla::media::serialization_version_2;
-			throw std::runtime_error(ss.str());
-		}
-
-		p[1].convert(&meta.tracks);
-		break;
-	}
-	default: {
-		std::ostringstream ss;
-		ss << "page unpack: version mismatch: read: " << version <<
-			", there is no such packing version ";
-		throw std::runtime_error(ss.str());
-	}
-	}
-
-	return meta;
-}
-
-template <typename Stream>
-inline msgpack::packer<Stream> &operator <<(msgpack::packer<Stream> &o, const ioremap::nulla::media &meta)
-{
-	o.pack_array(ioremap::nulla::media::serialization_version_2);
-	o.pack((int)ioremap::nulla::media::serialization_version_2);
-	o.pack(meta.tracks);
-
-	return o;
-}
-
-} // namespace msgpack
-
 
 #endif // __NULLA_ISO_READER_HPP
