@@ -16,6 +16,9 @@
 #include <iostream>
 #include <sstream>
 
+#include <stdlib.h>
+#include <unistd.h>
+
 namespace ioremap { namespace nulla {
 
 struct media {
@@ -392,6 +395,111 @@ public:
 
 private:
 	std::vector<char> m_cached;
+};
+
+class iso_stream_fallback_reader {
+public:
+	iso_stream_fallback_reader(const std::string &tmp_dir, const char *data, size_t size) {
+		try {
+			m_memory_reader.reset(new iso_memory_reader(data, size));
+			return;
+		} catch (const std::exception &e) {
+			if (tmp_dir.empty())
+				throw;
+		}
+
+		static const std::string secure_xxx = "/XXXXXXXX";
+		m_tmp_file = tmp_dir + secure_xxx;
+
+		ssize_t err = mkstemp((char *)m_tmp_file.c_str());
+		if (err < 0) {
+			err = -errno;
+			std::ostringstream ss;
+			ss << "could not create temporary file: template: " << m_tmp_file <<
+				", error: " << strerror(-err) <<
+				" [" << err << "]";
+			throw std::runtime_error(ss.str());
+		}
+
+		m_fd = err;
+
+		err = write(m_fd, data, size);
+		if (err != (ssize_t)size) {
+			close(m_fd);
+			m_fd = -1;
+
+			err = -errno;
+			std::ostringstream ss;
+			ss << "could not write into temporary file: " << m_tmp_file <<
+				", size: " << size <<
+				", error: " << strerror(-err) <<
+				" [" << err << "]";
+			throw std::runtime_error(ss.str());
+		}
+
+		m_need_reset = true;
+	}
+
+	~iso_stream_fallback_reader() {
+		if (m_fd >= 0) {
+			close(m_fd);
+			remove(m_tmp_file.c_str());
+		}
+	}
+
+	void feed(const char *data, size_t size) {
+		if (m_memory_reader) {
+			m_memory_reader->feed(data, size);
+			return;
+		}
+
+		ssize_t err = write(m_fd, data, size);
+		if (err != (ssize_t)size) {
+			err = -errno;
+			std::ostringstream ss;
+			ss << "could not write into temporary file: " << m_tmp_file <<
+				", size: " << size <<
+				", error: " << strerror(-err) <<
+				" [" << err << "]";
+			throw std::runtime_error(ss.str());
+		}
+
+		m_need_reset = true;
+	}
+
+	std::string pack() {
+		if (m_memory_reader) {
+			return m_memory_reader->pack();
+		}
+
+		setup_file_reader();
+		return m_file_reader->pack();
+	}
+
+	const media &get_media() {
+		if (m_memory_reader) {
+			return m_memory_reader->get_media();
+		}
+
+		setup_file_reader();
+		return m_file_reader->get_media();
+	}
+
+private:
+	std::unique_ptr<iso_memory_reader> m_memory_reader;
+	std::unique_ptr<iso_reader> m_file_reader;
+	int m_fd = -1;
+	bool m_need_reset = true;
+	std::string m_tmp_file;
+
+	void setup_file_reader() {
+		if (m_need_reset) {
+			fsync(m_fd);
+
+			m_file_reader.reset(new iso_reader(m_tmp_file.c_str()));
+			m_need_reset = false;
+		}
+	}
 };
 
 }} // namespace ioremap::nulla
