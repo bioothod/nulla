@@ -443,8 +443,19 @@ public:
 	~iso_stream_fallback_reader() {
 		if (m_fd >= 0) {
 			close(m_fd);
-			remove(m_tmp_file.c_str());
+
+			if (!m_do_not_remove) {
+				remove(m_tmp_file.c_str());
+			}
 		}
+	}
+
+	void do_not_remove() {
+		m_do_not_remove = true;
+	}
+
+	std::string tmp_file() const {
+		return m_tmp_file;
 	}
 
 	void feed(const char *data, size_t size) {
@@ -491,6 +502,7 @@ private:
 	int m_fd = -1;
 	bool m_need_reset = true;
 	std::string m_tmp_file;
+	bool m_do_not_remove = false;
 
 	void setup_file_reader() {
 		if (m_need_reset) {
