@@ -103,6 +103,7 @@ public:
 			parse_track_metadata(t);
 
 			m_media.tracks.emplace_back(t);
+			e = GF_OK;
 		}
 
 		return (int)e;
