@@ -458,6 +458,13 @@ public:
 		return m_tmp_file;
 	}
 
+	bool is_streaming() const {
+		if (m_memory_reader)
+			return true;
+
+		return false;
+	}
+
 	void feed(const char *data, size_t size) {
 		if (m_memory_reader) {
 			m_memory_reader->feed(data, size);
