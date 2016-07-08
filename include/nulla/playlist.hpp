@@ -15,6 +15,7 @@ namespace ioremap { namespace nulla {
 struct track_request {
 	std::string		bucket;
 	std::string		key;
+	std::string		meta_key;
 
 	// @start_msec in dts units - time position within track when given track should start be played from
 	long			dts_start;
@@ -61,12 +62,6 @@ struct track_request {
 struct representation {
 	std::string			id;
 
-	struct {
-		std::string		bucket;
-		std::string		key;
-	} init;
-
-
 	long				duration_msec = 0;
 
 	// multiple file requests come one after another to form a continuous stream of movies/songs
@@ -110,16 +105,6 @@ struct representation {
 	}
 };
 
-struct adaptation {
-	// these ids can be used to locate representation in playlist's repr map
-	std::vector<std::string>	repr_ids;
-};
-
-struct period {
-	std::vector<adaptation>		adaptations;
-	long				duration_msec = 0;
-};
-
 struct raw_playlist {
 	// dash or hls
 	std::string				type;
@@ -138,12 +123,13 @@ struct raw_playlist {
 	// and so on
 	std::chrono::system_clock::time_point	expires_at;
 
-	std::vector<period>			periods;
+	// duration is the longest duration among all representations
+	long					duration_msec = 0;
 
-	// random string
-	std::string				cookie;
+	// playlist ID which is returned to client
+	std::string				id;
 
-	// http://endpoint[:port]/@cookie
+	// http://address[:port]/stream/@id/
 	std::string				base_url;
 
 	std::map<std::string, representation>	repr;

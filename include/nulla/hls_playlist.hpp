@@ -16,11 +16,14 @@ public:
 		m_ss << "#EXTM3U\n";
 		m_ss << "#EXT-X-VERSION:3\n";
 
-		const nulla::period &pr = m_playlist->periods.front();
-		m_total_duration_msec = pr.duration_msec;
+		for (const auto &repr_pair: m_playlist->repr) {
+			const nulla::representation &repr = repr_pair.second;
 
-		// do not support multiple periods, use multiple tracks in the representation instead
-		add_period(pr);
+			if (repr.tracks.empty())
+				continue;
+
+			add_representation(m_ss, repr);
+		}
 	}
 
 	std::string main_playlist() const {
@@ -36,88 +39,10 @@ public:
 
 private:
 	nulla::playlist_t m_playlist;
-	long m_total_duration_msec = 0;
 	std::ostringstream m_ss;
 	std::map<std::string, std::string> m_variants;
 
-	int m_adaptation_id = 1;
-	std::vector<std::string> m_audio_groups, m_video_groups;
-
-	void add_period(const nulla::period &p) {
-		BOOST_FOREACH(const nulla::adaptation &aset, p.adaptations) {
-			std::string adaptation_id = "adaptation-" + std::to_string(m_adaptation_id);
-			add_aset_groups(adaptation_id, aset);
-			m_adaptation_id++;
-		}
-
-		BOOST_FOREACH(const nulla::adaptation &aset, p.adaptations) {
-			add_aset(aset);
-		}
-	}
-
-	void add_aset_groups(const std::string &adaptation_id, const nulla::adaptation &a) {
-		std::string group_id;
-		std::string type;
-
-		BOOST_FOREACH(const std::string &id, a.repr_ids) {
-			auto it = m_playlist->repr.find(id);
-			if (it == m_playlist->repr.end())
-				continue;
-
-			const nulla::representation &r = it->second;
-
-			const nulla::track_request &trf = r.tracks.front();
-			const nulla::track &track = trf.track();
-
-			std::string type = "DATA";
-			if (track.media_type == GF_ISOM_MEDIA_AUDIO) {
-				type = "AUDIO";
-				group_id = "audio-" + std::to_string(m_audio_groups.size());
-				m_audio_groups.push_back(group_id);
-			}
-			if (track.media_type == GF_ISOM_MEDIA_VISUAL) {
-				type = "VIDEO";
-				group_id = "video-" + std::to_string(m_video_groups.size());
-				m_video_groups.push_back(group_id);
-			}
-
-			std::string url = m_playlist->base_url + "playlist/" + r.id;
-
-			m_ss << "#EXT-X-MEDIA" <<
-				":TYPE=" << type <<
-				",GROUP-ID=\"" << group_id << "\"" <<
-				",NAME=\"" << adaptation_id << "\"" <<
-				//",LANGUAGE=\"" << a.lang << "\"" <<
-				",AUTOSELECT=YES" <<
-				",URI=\"" << url << "\"" <<
-				"\n";
-		}
-	}
-
-	void add_aset(const nulla::adaptation &a) {
-		if (m_audio_groups.empty()) {
-			m_audio_groups.push_back("none");
-		}
-		if (m_video_groups.empty()) {
-			m_video_groups.push_back("none");
-		}
-		BOOST_FOREACH(const std::string &id, a.repr_ids) {
-			auto it = m_playlist->repr.find(id);
-			if (it == m_playlist->repr.end())
-				continue;
-
-			const nulla::representation &r = it->second;
-
-			BOOST_FOREACH(std::string &atype, m_audio_groups) {
-				BOOST_FOREACH(std::string &vtype, m_video_groups) {
-					add_representation(m_ss, r, atype, vtype);
-				}
-			}
-		}
-	}
-
-	void add_representation(std::ostringstream &ss, const nulla::representation &r,
-			const std::string &atype, const std::string &vtype) {
+	void add_representation(std::ostringstream &ss, const nulla::representation &r) {
 		const nulla::track_request &trf = r.tracks.front();
 		const nulla::track &track = trf.track();
 
@@ -136,13 +61,6 @@ private:
 
 		if (track.media_type == GF_ISOM_MEDIA_VISUAL) {
 			ss << ",RESOLUTION=" << track.video.width << "x" << track.video.height;
-		}
-
-		if (atype != "none") {
-			ss << ",AUDIO=\"" << atype << "\"";
-		}
-		if (vtype != "none") {
-			ss << ",VIDEO=\"" << vtype << "\"";
 		}
 
 		ss << "\n" << url << "\n";

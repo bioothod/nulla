@@ -3,7 +3,6 @@
 
 #include "nulla/playlist.hpp"
 
-#include <boost/foreach.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 
@@ -30,12 +29,26 @@ public:
 
 		mpd.put("BaseURL", m_playlist->base_url);
 
-		BOOST_FOREACH(const nulla::period &pr, m_playlist->periods) {
-			add_period(mpd, pr);
-		}
+		pt::ptree period;
+		//period.put("<xmlattr>.duration", print_time(m_playlist->duration_msec));
+		period.put("<xmlattr>.id", "period_id");
 
-		mpd.put("<xmlattr>.mediaPresentationDuration", print_time(m_total_duration_msec));
-		mpd.put("<xmlattr>.maxSegmentDuration", print_time(m_max_segment_duration_msec));
+		for (const auto &repr_pair: m_playlist->repr) {
+			const nulla::representation &repr = repr_pair.second;
+
+			if (repr.tracks.empty())
+				continue;
+
+			pt::ptree aset;
+			aset.put("<xmlattr>.segmentAlignment", "true");
+
+			add_representation(aset, repr);
+			period.add_child("AdaptationSet", aset);
+		}
+		mpd.add_child("Period", period);
+
+		mpd.put("<xmlattr>.mediaPresentationDuration", print_time(m_playlist->duration_msec));
+		mpd.put("<xmlattr>.maxSegmentDuration", print_time(m_playlist->duration_msec));
 		m_root.add_child("MPD", mpd);
 	}
 
@@ -49,41 +62,6 @@ public:
 private:
 	nulla::playlist_t m_playlist;
 	pt::ptree m_root;
-	long m_total_duration_msec = 0;
-	long m_max_segment_duration_msec = 0;
-
-	void add_period(pt::ptree &mpd, const nulla::period &p) {
-		pt::ptree period;
-
-		m_total_duration_msec += p.duration_msec;
-		if (p.duration_msec > m_max_segment_duration_msec)
-			m_max_segment_duration_msec = p.duration_msec;
-
-		period.put("<xmlattr>.duration", print_time(p.duration_msec));
-
-		BOOST_FOREACH(const nulla::adaptation &aset, p.adaptations) {
-			add_aset(period, aset);
-		}
-
-		if (p.adaptations.size())
-			mpd.add_child("Period", period);
-	}
-
-	void add_aset(pt::ptree &period, const nulla::adaptation &a) {
-		pt::ptree aset;
-
-		aset.put("<xmlattr>.segmentAlignment", "true");
-		BOOST_FOREACH(const std::string &id, a.repr_ids) {
-			auto it = m_playlist->repr.find(id);
-			if (it == m_playlist->repr.end())
-				continue;
-			
-			add_representation(aset, it->second);
-		}
-
-		if (a.repr_ids.size())
-			period.add_child("AdaptationSet", aset);
-	}
 
 	void add_representation(pt::ptree &aset, const nulla::representation &r) {
 		pt::ptree repr;

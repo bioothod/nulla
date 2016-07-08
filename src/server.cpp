@@ -17,6 +17,7 @@
 #include "nulla/asio.hpp"
 #include "nulla/dash_playlist.hpp"
 #include "nulla/expiration.hpp"
+#include "nulla/jsonvalue.hpp"
 #include "nulla/hls_playlist.hpp"
 #include "nulla/iso_reader.hpp"
 #include "nulla/iso_writer.hpp"
@@ -48,23 +49,7 @@ template <typename Server, typename Stream>
 class on_dash_manifest_base : public thevoid::simple_request_stream<Server>, public std::enable_shared_from_this<Stream> {
 public:
 	virtual void on_request(const thevoid::http_request &req, const boost::asio::const_buffer &buffer) {
-		const auto &path = req.url().path_components();
-		if (path.size() < 2) {
-			NLOG_ERROR("url: %s: could not manifest request must include at least 2 path components: %s/type",
-					req.url().to_human_readable().c_str(), path[0].c_str());
-			this->send_reply(thevoid::http_response::bad_request);
-			return;
-		}
-
-		std::string type = path[1];
-		if (type != "dash" && type != "hls") {
-			NLOG_ERROR("url: %s: unsupported playlist type '%s'", req.url().to_human_readable().c_str(), type.c_str());
-			this->send_reply(thevoid::http_response::bad_request);
-			return;
-		}
-
 		m_playlist = std::shared_ptr<nulla::raw_playlist>(new nulla::raw_playlist());
-		m_playlist->type = type;
 
 		elliptics::error_info err = parse_manifest_request(buffer);
 		if (err) {
@@ -77,30 +62,14 @@ public:
 			return;
 		}
 
-		for (auto repr_it = m_playlist->repr.begin(), repr_it_end = m_playlist->repr.end();
-				repr_it != repr_it_end;
-				++repr_it) {
-
-			size_t track_position = 0;
-			for (auto track_it = repr_it->second.tracks.begin(), track_it_end = repr_it->second.tracks.end();
-					track_it != track_it_end; ++track_it) {
-				ebucket::bucket b;
-				err = this->server()->bucket_processor()->find_bucket(track_it->bucket, b);
-				if (err) {
-					NLOG_ERROR("url: %s: could not find bucket %s in bucket processor: %s [%d]",
-							req.url().to_human_readable().c_str(), track_it->bucket.c_str(),
-							err.message().c_str(), err.code());
-
-					this->send_reply(thevoid::http_response::bad_request);
-					return;
-				}
-
-				b->session().read_data(nulla::metadata_key(track_it->key), 0, 0).connect(
-					std::bind(&on_dash_manifest_base::on_read_meta,
-						this->shared_from_this(), repr_it->first, track_position,
-						std::placeholders::_1, std::placeholders::_2));
-
-				++track_position;
+		for (auto &repr_pair: m_playlist->repr) {
+			err = request_track_info(repr_pair.second);
+			if (err) {
+				NLOG_ERROR("url: %s: repr: %s, could not request track info, error: %s [%d]",
+					req.url().to_human_readable().c_str(),
+					repr_pair.first.c_str(), err.message().c_str(), err.code());
+				this->send_reply(thevoid::http_response::bad_request);
+				return;
 			}
 		}
 	}
@@ -113,69 +82,63 @@ public:
 private:
 	nulla::playlist_t m_playlist;
 
-	void update_periods() {
-		BOOST_FOREACH(nulla::period &p, m_playlist->periods) {
-			BOOST_FOREACH(nulla::adaptation &a, p.adaptations) {
-				BOOST_FOREACH(std::string &id, a.repr_ids) {
-					auto it = m_playlist->repr.find(id);
-					if (it == m_playlist->repr.end())
-						continue;
+	elliptics::error_info update_periods(nulla::representation &repr) {
+		repr.duration_msec = 0;
+		long dts_first_sample_offset = 0;
+		long number = 0;
 
-					long dts_first_sample_offset = 0;
-					long number = 0;
+		for (auto &tr : repr.tracks) {
+			nulla::track &track = tr.media.tracks[tr.requested_track_index];
 
-					nulla::representation &repr = it->second;
-					repr.duration_msec = 0;
-					BOOST_FOREACH(nulla::track_request &tr, repr.tracks) {
-						nulla::track &track = tr.media.tracks[tr.requested_track_index];
+			tr.dts_start = tr.start_msec * track.media_timescale / 1000;
+			ssize_t start_pos = track.sample_position_from_dts(tr.dts_start, true);
+			if (start_pos < 0) {
+				return elliptics::create_error(-EINVAL,
+						"could not locate sample for dts_start: %ld, track: %s",
+						tr.dts_start, track.str().c_str());
+			}
+			tr.dts_start = track.samples[start_pos].dts;
 
-						tr.dts_start = tr.start_msec * track.media_timescale / 1000;
-						ssize_t start_pos = track.sample_position_from_dts(tr.dts_start, true);
-						if (start_pos < 0) {
-							throw elliptics::create_error(-EINVAL,
-									"could not locate sample for dts_start: %ld, track: %s",
-									tr.dts_start, track.str().c_str());
-						}
-						tr.dts_start = track.samples[start_pos].dts;
+			long dts_end = tr.dts_start + tr.duration_msec * track.media_timescale / 1000;
+			ssize_t end_pos = track.sample_position_from_dts(dts_end, false);
+			if (end_pos < 0)
+				end_pos = track.samples.size() - 1;
 
-						long dts_end = tr.dts_start + tr.duration_msec * track.media_timescale / 1000;
-						ssize_t end_pos = track.sample_position_from_dts(dts_end, false);
-						if (end_pos < 0)
-							end_pos = track.samples.size() - 1;
+			memmove((char *)track.samples.data(), track.samples.data() + start_pos,
+					sizeof(nulla::sample) * (end_pos - start_pos + 1));
+			track.samples.resize(end_pos - start_pos + 1);
 
-						memmove((char *)track.samples.data(), track.samples.data() + start_pos,
-								sizeof(nulla::sample) * (end_pos - start_pos + 1));
-						track.samples.resize(end_pos - start_pos + 1);
-
-						BOOST_FOREACH(nulla::sample &s, track.samples) {
-							s.dts -= tr.dts_start;
-						}
-
-
-						tr.dts_first_sample_offset = dts_first_sample_offset;
-						tr.start_number = number;
-
-						repr.duration_msec += tr.duration_msec;
-						number += (tr.duration_msec + 1000 * m_playlist->chunk_duration_sec - 1) /
-							(1000 * m_playlist->chunk_duration_sec);
-
-						const nulla::sample &end_sample = track.samples[track.samples.size() - 1];
-						const nulla::sample &prev_sample = track.samples[track.samples.size() - 2];
-						long last_diff_dts = end_sample.dts - prev_sample.dts;
-
-						dts_first_sample_offset += end_sample.dts + last_diff_dts;
-
-						printf("track: %s, dts: [%lu, %lu), start_number: %ld, dts_first_sample_offset: %lu\n",
-								track.str().c_str(), track.samples[0].dts, end_sample.dts + last_diff_dts,
-								tr.start_number, tr.dts_first_sample_offset);
-					}
-
-					// set period duration to the smallest representation duration
-					if (p.duration_msec == 0 || p.duration_msec > repr.duration_msec)
-						p.duration_msec = repr.duration_msec;
-				}
+			for (auto &s : track.samples) {
+				s.dts -= tr.dts_start;
 			}
 
+
+			tr.dts_first_sample_offset = dts_first_sample_offset;
+			tr.start_number = number;
+
+			repr.duration_msec += tr.duration_msec;
+			number += (tr.duration_msec + 1000 * m_playlist->chunk_duration_sec - 1) /
+				(1000 * m_playlist->chunk_duration_sec);
+
+			const nulla::sample &end_sample = track.samples[track.samples.size() - 1];
+			const nulla::sample &prev_sample = track.samples[track.samples.size() - 2];
+			long last_diff_dts = end_sample.dts - prev_sample.dts;
+
+			dts_first_sample_offset += end_sample.dts + last_diff_dts;
+
+			NLOG_INFO("track: %s, dts: [%lu, %lu), start_number: %ld, dts_first_sample_offset: %lu\n",
+					track.str().c_str(), track.samples[0].dts, end_sample.dts + last_diff_dts,
+					tr.start_number, tr.dts_first_sample_offset);
+		}
+
+		// set period duration to the smallest representation duration
+		if (m_playlist->duration_msec == 0 || m_playlist->duration_msec > repr.duration_msec)
+			m_playlist->duration_msec = repr.duration_msec;
+
+		return elliptics::error_info();
+	}
+
+#if 0
 			// period duration has been set to the smallest representation duration,
 			// we have to update all adaptations to be the same lenght
 			BOOST_FOREACH(nulla::adaptation &a, p.adaptations) {
@@ -201,40 +164,60 @@ private:
 					}
 				}
 			}
+#endif
+
+	elliptics::error_info check_and_send_manifest() {
+		elliptics::error_info err;
+		if (m_playlist->meta_chunks_read != m_playlist->meta_chunks_requested)
+			return err;
+
+		for (auto &repr_pair: m_playlist->repr) {
+			err = update_periods(repr_pair.second);
+			if (err)
+				return err;
 		}
-	}
 
-	void check_and_send_manifest() {
-		if (m_playlist->meta_chunks_read == m_playlist->meta_chunks_requested) {
-			update_periods();
+		m_playlist->id = this->server()->store_playlist(m_playlist);
+		m_playlist->base_url = this->server()->hostname() + "/stream/" + m_playlist->id + "/";
 
-			std::string playlist_id = this->server()->store_playlist(m_playlist);
-			m_playlist->base_url = this->server()->hostname() + "/stream/" + playlist_id + "/";
-
-			send_manifest();
-		}
+		send_manifest();
+		return err;
 	}
 
 	void send_manifest() {
-		std::string url = m_playlist->base_url + "playlist";
+		nulla::JsonValue ret;
+
+		rapidjson::Value pval(m_playlist->id.c_str(), m_playlist->id.size(), ret.GetAllocator());
+		ret.AddMember("id", pval, ret.GetAllocator());
+
+		rapidjson::Value pbase(m_playlist->base_url.c_str(), m_playlist->base_url.size(), ret.GetAllocator());
+		ret.AddMember("base_url", pbase, ret.GetAllocator());
+
+		std::string playlist_url = m_playlist->base_url + "playlist";
+		rapidjson::Value purl(playlist_url.c_str(), playlist_url.size(), ret.GetAllocator());
+		ret.AddMember("playlist_url", purl, ret.GetAllocator());
+
+		std::string data = ret.ToString();
 
 		thevoid::http_response reply;
 		reply.set_code(swarm::http_response::ok);
-		reply.headers().set_content_length(url.size());
-		reply.headers().set("Access-Control-Allow-Credentials", "true");
+		reply.headers().set_content_length(data.size());
 		reply.headers().set("Access-Control-Allow-Origin", "*");
 
-		this->send_headers(std::move(reply), std::move(url),
-				std::bind(&on_dash_manifest_base::close, this->shared_from_this(), std::placeholders::_1));
+		this->send_reply(std::move(reply), std::move(data));
 	}
 
 	void on_read_meta(const std::string &repr_id, size_t track_position,
 			const elliptics::sync_read_result &result, const elliptics::error_info &error) {
 		if (error) {
-			NLOG_ERROR("meta-read: %s: url: %s: error: %s",
-					__func__, this->request().url().to_human_readable().c_str(), error.message().c_str());
+			NLOG_ERROR("meta-read: repr: %s, track_position: %ld, error: %s [%d]",
+					repr_id.c_str(), track_position, error.message().c_str(), error.code());
 
-			this->send_reply(thevoid::http_response::service_unavailable);
+			if (error.code() == -ENOENT) {
+				this->send_reply(thevoid::http_response::not_found);
+			} else {
+				this->send_reply(thevoid::http_response::service_unavailable);
+			}
 			return;
 		}
 
@@ -242,33 +225,34 @@ private:
 		// two callbacks can update the same representation in parallel, but they update
 		// different track requests and do not change mutual track alignment (like positions in std::vector or vector itself),
 		// so we do not need to protect it
-		auto repr_it = m_playlist->repr.find(repr_id);
+		const auto repr_it = m_playlist->repr.find(repr_id);
 		if (repr_it == m_playlist->repr.end()) {
-			NLOG_ERROR("meta-read: %s: url: %s: could not find representation with id %s",
-					__func__, this->request().url().to_human_readable().c_str(),
-					repr_id.c_str());
-
-			this->send_reply(thevoid::http_response::service_unavailable);
+			NLOG_ERROR("meta-read: repr: %s, track_position: %ld, could not find representation",
+					repr_id.c_str(), track_position);
+			this->send_reply(thevoid::http_response::bad_request);
 			return;
 		}
-		
-		if (track_position >= repr_it->second.tracks.size()) {
-			NLOG_ERROR("meta-read: %s: url: %s: repr_id: %s, track_position: %zd, tracks_size: %zd: position is out of band",
-					__func__, this->request().url().to_human_readable().c_str(),
+
+		nulla::representation &repr = repr_it->second;
+
+		// this is just a sanity check
+		if (track_position >= repr.tracks.size()) {
+			NLOG_ERROR("meta-read: repr: %s, track_position: %zd, tracks_size: %zd: position is out of band",
 					repr_id.c_str(), track_position, repr_it->second.tracks.size());
 
 			this->send_reply(thevoid::http_response::service_unavailable);
 			return;
 		}
 
-		nulla::track_request &tr = repr_it->second.tracks[track_position];
+		nulla::track_request &tr = repr.tracks[track_position];
 
 		const elliptics::read_result_entry &entry = result[0];
 		elliptics::error_info err = meta_unpack(entry.file(), tr);
 		if (err) {
-			NLOG_ERROR("meta-read: %s: url: %s: repr_id: %s, could not unpack metadata: %s",
-					__func__, this->request().url().to_human_readable().c_str(),
-					repr_id.c_str(), err.message().c_str());
+			NLOG_ERROR("meta-read: repr: %s, track_position: %zd, "
+				"track: bucket: %s, key: %s, could not unpack metadata: %s [%d]",
+					repr_id.c_str(), track_position, tr.bucket.c_str(), tr.key.c_str(),
+					err.message().c_str(), err.code());
 
 			if (err.code() == -ENOENT) {
 				this->send_reply(thevoid::http_response::not_found);
@@ -279,12 +263,17 @@ private:
 			return;
 		}
 
-		NLOG_INFO("meta-read: %s: url: %s, repr_id: %s, media-tracks: %zd",
-			__func__, this->request().url().to_human_readable().c_str(),
-			repr_id.c_str(), tr.media.tracks.size());
+		NLOG_INFO("meta-read: repr: %s, track_position: %zd: track: bucket: %s, key: %s, media-tracks: %zd",
+			repr_id.c_str(), track_position, tr.bucket.c_str(), tr.key.c_str(), tr.media.tracks.size());
 
 		++m_playlist->meta_chunks_read;
-		check_and_send_manifest();
+		err = check_and_send_manifest();
+		if (err) {
+			NLOG_ERROR("meta-read: repr: %s, track_position: %zd, could not create and send manifest: %s [%d]",
+				repr_id.c_str(), track_position, err.message().c_str(), err.code());
+			this->send_reply(thevoid::http_response::service_unavailable);
+			return;
+		}
 	}
 
 	elliptics::error_info parse_manifest_request(const boost::asio::const_buffer &buffer) {
@@ -303,106 +292,43 @@ private:
 			return elliptics::create_error(-EINVAL, "document must be object, its type: %d", doc.GetType());
 		}
 
+		m_playlist->type = ebucket::get_string(doc, "type", "dash");
+
 		m_playlist->expires_at = std::chrono::system_clock::now() +
-			std::chrono::seconds(ebucket::get_int64(doc, "timeout", 10));
+			std::chrono::seconds(ebucket::get_int64(doc, "timeout_sec", 10));
 		m_playlist->chunk_duration_sec = ebucket::get_int64(doc, "chunk_duration_sec", 5);
 
-		const auto &periods = ebucket::get_array(doc, "periods");
-		if (!periods.IsArray()) {
-			return elliptics::create_error(-EINVAL, "'periods' must be an array");
-		}
+		elliptics::error_info err = elliptics::create_error(-EINVAL, "there are no audio/video tracks in request");
 
-		elliptics::error_info err;
-		size_t idx = 0;
-		for (auto it = periods.Begin(), it_end = periods.End(); it != it_end; ++it) {
-			if (!it->IsObject()) {
-				return elliptics::create_error(-EINVAL, "'periods' array must contain objects, entry at index %zd is %d",
-						idx, it->GetType());
-			}
-
-			nulla::period period;
-			err = parse_manifest_period(*it, period);
-			if (err)
-				return err;
-
-			m_playlist->periods.emplace_back(period);
-		}
-
-		if (m_playlist->periods.empty()) {
-			return elliptics::create_error(-EINVAL, "there are no periods in request");
-		}
-
-		return elliptics::error_info();
-	}
-
-	elliptics::error_info parse_manifest_period(const rapidjson::Value &p, nulla::period &period) {
-		bool skip = ebucket::get_bool(p, "skip", false);
-		if (skip) {
-			return elliptics::error_info();
-		}
-
-		const auto &asets = ebucket::get_array(p, "asets");
-		if (!asets.IsArray()) {
-			return elliptics::create_error(-EINVAL, "adaptation sets 'asets' must be an array");
-		}
-
-		elliptics::error_info err;
-		size_t idx = 0;
-		for (auto it = asets.Begin(), it_end = asets.End(); it != it_end; ++it) {
-			if (!it->IsObject()) {
-				return elliptics::create_error(-EINVAL, "'asets' array must contain objects, entry at index %zd is %d",
-						idx, it->GetType());
-			}
-
-			nulla::adaptation adaptation;
-			err = parse_manifest_adaptation(*it, adaptation);
-			if (err)
-				return err;
-
-			period.adaptations.emplace_back(adaptation);
-			++idx;
-		}
-
-		return err;
-	}
-
-	elliptics::error_info parse_manifest_adaptation(const rapidjson::Value &adaptation, nulla::adaptation &aset) {
-		bool skip = ebucket::get_bool(adaptation, "skip", false);
-		if (skip) {
-			return elliptics::error_info();
-		}
-
-		const auto &rsets = ebucket::get_array(adaptation, "rsets");
-		if (!rsets.IsArray()) {
-			return elliptics::create_error(-EINVAL, "representations 'rsets' must be an array");
-		}
-
-		elliptics::error_info err;
-		size_t idx = 0;
-		for (auto it = rsets.Begin(), it_end = rsets.End(); it != it_end; ++it) {
-			if (!it->IsObject()) {
-				return elliptics::create_error(-EINVAL, "'rsets' array must contain objects, entry at index %zd is %d",
-						idx, it->GetType());
-			}
-
+		const auto &audio = ebucket::get_object(doc, "audio");
+		if (audio.IsObject()) {
 			nulla::representation repr;
-			err = parse_manifest_representation(*it, repr);
-			if (err)
-				return err;
+			err = parse_manifest_tracks(audio, repr);
+			if (err) {
+				return elliptics::create_error(err.code(), "could not parse audio tracks: %s", err.message().c_str());
+			}
 
-			aset.repr_ids.push_back(repr.id);
+			repr.id = "audio";
+			if (repr.tracks.size() != 0)
+				m_playlist->repr.insert(std::make_pair(repr.id, repr));
+		}
+		const auto &video = ebucket::get_object(doc, "video");
+		if (video.IsObject()) {
+			nulla::representation repr;
+			err = parse_manifest_tracks(video, repr);
+			if (err) {
+				return elliptics::create_error(err.code(), "could not parse video tracks: %s", err.message().c_str());
+			}
 
-			// this runs in @on_request() method, nothing runs in parallel,
-			// we do not need to protect playlist's repr map
-			m_playlist->repr.insert(std::make_pair(repr.id, repr));
-
-			++idx;
+			repr.id = "video";
+			if (repr.tracks.size() != 0)
+				m_playlist->repr.insert(std::make_pair(repr.id, repr));
 		}
 
 		return err;
 	}
 
-	elliptics::error_info parse_manifest_representation(const rapidjson::Value &representation, nulla::representation &repr) {
+	elliptics::error_info parse_manifest_tracks(const rapidjson::Value &representation, nulla::representation &repr) {
 		bool skip = ebucket::get_bool(representation, "skip", false);
 		if (skip) {
 			return elliptics::error_info();
@@ -429,19 +355,21 @@ private:
 			}
 
 			const char *key = ebucket::get_string(*it, "key");
+			const char *meta_key = ebucket::get_string(*it, "meta_key");
 			const char *bucket = ebucket::get_string(*it, "bucket");
 			long start_msec = ebucket::get_int64(*it, "start", 0);
 			long duration_msec = ebucket::get_int64(*it, "duration", 0);
 			int requested_track_number = ebucket::get_int64(*it, "number", 1);
 
-			if (!key || !bucket || duration_msec < 0 || start_msec < 0) {
-				return elliptics::create_error(-EINVAL, "bucket, key, start, duration must be present, "
+			if (!key || !meta_key || !bucket || duration_msec < 0 || start_msec < 0) {
+				return elliptics::create_error(-EINVAL, "bucket, key, meta_key, start, duration must be present, "
 						"entry at index %zd is invalid: bucket: %p, key: %p, start: %ld, duration: %ld",
 						idx, bucket, key, start_msec, duration_msec);
 			}
 
 			nulla::track_request tr;
 			tr.key.assign(key);
+			tr.meta_key.assign(meta_key);
 			tr.bucket.assign(bucket);
 			tr.start_msec = start_msec;
 			tr.duration_msec = duration_msec;
@@ -450,6 +378,34 @@ private:
 			repr.tracks.emplace_back(tr);
 
 			++m_playlist->meta_chunks_requested;
+			++idx;
+		}
+
+		return err;
+	}
+
+	elliptics::error_info request_track_info(const nulla::representation &repr) {
+		// we have to run this loop after the whole @repr.tracks array has been filled,
+		// since completion callback will modify its entries, and there are no locks
+		int idx = 0;
+		elliptics::error_info err;
+
+		for (auto &tr: repr.tracks) {
+			ebucket::bucket b;
+			err = this->server()->bucket_processor()->find_bucket(tr.bucket, b);
+			if (err) {
+				return elliptics::create_error(err.code(),
+						"idx: %d, could not find bucket %s in bucket processor: %s [%d]",
+						idx, tr.bucket.c_str(), err.message().c_str(), err.code());
+			}
+
+			auto session = b->session();
+			session.set_filter(elliptics::filters::positive);
+			session.read_data(tr.meta_key, 0, 0).connect(
+				std::bind(&on_dash_manifest_base::on_read_meta,
+					this->shared_from_this(), repr.id, idx,
+					std::placeholders::_1, std::placeholders::_2));
+
 			++idx;
 		}
 
@@ -570,12 +526,16 @@ public:
 			}
 
 			std::string pl;
+			thevoid::http_response reply;
+			reply.set_code(thevoid::http_response::ok);
+			reply.headers().set("Access-Control-Allow-Origin", "*");
 
 			if (m_playlist->type == "dash") {
 				nulla::mpd mpd(m_playlist);
 				mpd.generate();
 
 				pl = mpd.xml();
+				reply.headers().set_content_type("application/dash+xml");
 			} else if (m_playlist->type == "hls") {
 				nulla::m3u8 m(m_playlist);
 				m.generate();
@@ -595,11 +555,8 @@ public:
 				return;
 			}
 
-			thevoid::http_response reply;
-			reply.set_code(thevoid::http_response::ok);
+
 			reply.headers().set_content_length(pl.size());
-			reply.headers().set("Access-Control-Allow-Credentials", "true");
-			reply.headers().set("Access-Control-Allow-Origin", "*");
 
 			this->send_reply(std::move(reply), std::move(pl));
 			return;
@@ -641,22 +598,30 @@ public:
 
 			const auto &tr = repr.tracks.front();
 
-			ebucket::bucket b;
-			elliptics::error_info err = this->server()->bucket_processor()->find_bucket(tr.bucket, b);
-			if (err) {
-				NLOG_ERROR("url: %s: could not find bucket %s in bucket processor: %s [%d]",
-						req.url().to_human_readable().c_str(), repr.init.bucket.c_str(),
-						err.message().c_str(), err.code());
-				this->send_reply(thevoid::http_response::bad_request);
+			NLOG_INFO("url: %s: playlist_id: %s, init request", req.url().to_human_readable().c_str(), playlist_id.c_str());
+
+			nulla::writer_options opt;
+			memset(&opt, 0, sizeof(opt));
+
+			const nulla::track &track = tr.track();
+
+			std::vector<char> init_data, movie_data;
+			nulla::iso_writer writer(this->server()->tmp_dir(), track);
+			int err = writer.create(opt, true, init_data, movie_data);
+			if (err < 0) {
+				NLOG_ERROR("url: %s: playlist_id: %s: writer creation error: %d",
+						__func__, this->request().url().to_human_readable().c_str(), err);
+
+				this->send_reply(thevoid::http_response::internal_server_error);
 				return;
 			}
 
-			std::string init_key = nulla::metadata_key(tr.key);
-			NLOG_INFO("%s: playlist_id: %s, init request, bucket: %s, key: %s",
-					__func__, playlist_id.c_str(), tr.bucket.c_str(), tr.key.c_str());
+			thevoid::http_response reply;
+			reply.set_code(swarm::http_response::ok);
+			reply.headers().set_content_length(init_data.size());
+			reply.headers().set("Access-Control-Allow-Origin", "*");
 
-			b->session().read_data(init_key, 0, 0).connect(std::bind(&on_dash_stream_base::on_read_init,
-				this->shared_from_this(), std::cref(tr), std::placeholders::_1, std::placeholders::_2));
+			this->send_reply(std::move(reply), std::move(init_data));
 			return;
 		}
 
@@ -692,6 +657,7 @@ public:
 					repr.tracks.front().dts_first_sample_offset,
 					repr.tracks.back().dts_first_sample_offset);
 			this->send_reply(thevoid::http_response::bad_request);
+			return;
 		}
 
 		const auto &tr = *trit;
@@ -703,56 +669,13 @@ public:
 		request_track_data(tr, number);
 	}
 
-	void on_read_init(const nulla::track_request &tr, const elliptics::sync_read_result &result, const elliptics::error_info &error) {
-		if (error) {
-			NLOG_ERROR("buffered-get: %s: url: %s: error: %s",
-					__func__, this->request().url().to_human_readable().c_str(), error.message().c_str());
-
-			auto ec = boost::system::errc::make_error_code(static_cast<boost::system::errc::errc_t>(-error.code()));
-			this->close(ec);
-			return;
-		}
-
-		const elliptics::read_result_entry &entry = result[0];
-		const elliptics::data_pointer &file = entry.file();
-
-		nulla::writer_options opt;
-		memset(&opt, 0, sizeof(opt));
-		opt.sample_data = file.data<char>();
-		opt.sample_data_size = file.size();
-
-		const nulla::track &track = tr.track();
-
-		std::vector<char> init_data, movie_data;
-		nulla::iso_writer writer(this->server()->tmp_dir(), track);
-		int err = writer.create(opt, true, init_data, movie_data);
-		if (err < 0) {
-			NLOG_ERROR("buffered-get: %s: url: %s: writer creation error: %d",
-					__func__, this->request().url().to_human_readable().c_str(), err);
-
-			auto ec = boost::system::errc::make_error_code(static_cast<boost::system::errc::errc_t>(err));
-			this->close(ec);
-			return;
-		}
-
-		thevoid::http_response reply;
-		reply.set_code(swarm::http_response::ok);
-		reply.headers().set_content_length(init_data.size());
-		reply.headers().set("Access-Control-Allow-Credentials", "true");
-		reply.headers().set("Access-Control-Allow-Origin", "*");
-
-		this->send_headers(std::move(reply), std::move(init_data),
-				std::bind(&on_dash_stream_base::close, this->shared_from_this(), std::placeholders::_1));
-	}
-
 	void on_read_samples(nulla::writer_options &opt, const nulla::track_request &tr,
 			const elliptics::sync_read_result &result, const elliptics::error_info &error) {
 		if (error) {
 			NLOG_ERROR("buffered-get: %s: url: %s: error: %s",
 					__func__, this->request().url().to_human_readable().c_str(), error.message().c_str());
 
-			auto ec = boost::system::errc::make_error_code(static_cast<boost::system::errc::errc_t>(-error.code()));
-			this->close(ec);
+			this->send_reply(thevoid::http_response::internal_server_error);
 			return;
 		}
 
@@ -779,15 +702,13 @@ public:
 			NLOG_ERROR("buffered-get: %s: url: %s: writer creation error: %d",
 					__func__, this->request().url().to_human_readable().c_str(), err);
 
-			auto ec = boost::system::errc::make_error_code(static_cast<boost::system::errc::errc_t>(err));
-			this->close(ec);
+			this->send_reply(thevoid::http_response::internal_server_error);
 			return;
 		}
 
 		thevoid::http_response reply;
 		reply.set_code(swarm::http_response::ok);
 		reply.headers().set_content_length(movie_data.size());
-		reply.headers().set("Access-Control-Allow-Credentials", "true");
 		reply.headers().set("Access-Control-Allow-Origin", "*");
 
 		this->send_headers(std::move(reply), std::move(movie_data),
@@ -819,8 +740,7 @@ public:
 					__func__, this->request().url().to_human_readable().c_str(), track.id, track.number,
 					dtime_start, number, pos_start);
 
-			auto ec = boost::system::errc::make_error_code(static_cast<boost::system::errc::errc_t>(pos_start));
-			this->close(ec);
+			this->send_reply(thevoid::http_response::internal_server_error);
 			return;
 		}
 
@@ -848,7 +768,9 @@ public:
 		opt.fragment_duration = 1 * track.media_timescale; // 1 second
 		opt.dts_start_absolute = tr.dts_first_sample_offset;
 
-		b->session().read_data(tr.key, start_offset, end_offset - start_offset).connect(
+		auto session = b->session();
+		session.set_filter(elliptics::filters::positive);
+		session.read_data(tr.key, start_offset, end_offset - start_offset).connect(
 				std::bind(&on_dash_stream_base::on_read_samples,
 					this->shared_from_this(), opt, std::cref(tr), std::placeholders::_1, std::placeholders::_2));
 	}
@@ -901,25 +823,22 @@ public:
 		k.transform(*m_session);
 
 		char dst[2*DNET_ID_SIZE+1];
-		playlist->cookie.assign(dnet_dump_id_len_raw(k.raw_id().id, DNET_ID_SIZE, dst));
+		playlist->id.assign(dnet_dump_id_len_raw(k.raw_id().id, DNET_ID_SIZE, dst));
 
-		auto expires_at = playlist->expires_at;
-		for (const auto &p : playlist->periods) {
-			expires_at += std::chrono::milliseconds(p.duration_msec);
-		}
+		auto expires_at = playlist->expires_at + std::chrono::milliseconds(playlist->duration_msec);
 
 		{
 			std::lock_guard<std::mutex> guard(m_playlists_lock);
-			m_playlists.insert(std::make_pair(playlist->cookie, playlist));
+			m_playlists.insert(std::make_pair(playlist->id, playlist));
 		}
 
-		m_expiration.insert(expires_at, std::bind(&nulla_server::remove_playlist, this, playlist->cookie));
-		return playlist->cookie;
+		m_expiration.insert(expires_at, std::bind(&nulla_server::remove_playlist, this, playlist->id));
+		return playlist->id;
 	}
 
-	nulla::playlist_t get_playlist(const std::string &cookie) {
+	nulla::playlist_t get_playlist(const std::string &id) {
 		std::lock_guard<std::mutex> guard(m_playlists_lock);
-		auto it = m_playlists.find(cookie);
+		auto it = m_playlists.find(id);
 		if (it != m_playlists.end()) {
 			return it->second;
 		}
