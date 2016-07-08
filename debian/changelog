@@ -1,3 +1,12 @@
+nulla (0.2.0) unstable; urgency=low
+
+  * nulla: switched to much simpler json API for playlist generation,
+  * 	do not support multiple bandwidths, instead there will be automatic transcoding eventually
+  * media: move msgpack operations directly into structure
+  * iso_reader: added streaming reader which falls back to whole-file ISO reader if file is not suitable for streaming parsing
+
+ -- Evgeniy Polyakov <zbr@ioremap.net>  Sat, 09 Jul 2016 00:21:20 +0400
+
 nulla (0.1.3) unstable; urgency=low
 
   * Added cmake config file and nulla-dev/-devel package which includes headers and cmake

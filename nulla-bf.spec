@@ -1,6 +1,6 @@
 Summary:	Nulla Elliptics streaming server
 Name:		nulla
-Version:	0.1.3
+Version:	0.2.0
 Release:	1%{?dist}
 
 License:	GPL 3.0
@@ -63,6 +63,12 @@ rm -rf %{buildroot}
 %{_datadir}/nulla/cmake/*
 
 %changelog
+* Sat Jul 09 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.2.0
+- nulla: switched to much simpler json API for playlist generation,
+- 	do not support multiple bandwidths, instead there will be automatic transcoding eventually
+- media: move msgpack operations directly into structure
+- iso_reader: added streaming reader which falls back to whole-file ISO reader if file is not suitable for streaming parsing
+
 * Sat May 28 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.1.3
 - Added cmake config file and nulla-dev/-devel package which includes headers and cmake
 - extract_meta: remove temporal knob which disabled elliptics upload of the metadata
