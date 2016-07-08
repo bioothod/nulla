@@ -1,6 +1,6 @@
 {
     "endpoints": [
-        "0.0.0.0:8080"
+        "0.0.0.0:8100"
     ],
     "backlog": 512,
     "threads": 10,
@@ -27,7 +27,7 @@
         "fork": false,
         "uid": 1000
     },
-    "monitor-port": 21212,
+    "monitor-port": 21233,
     "request_header": "X-Request",
     "trace_header": "X-Trace",
     "log_request_headers": ["User-Agent", "Authorization", "Cookie"],
@@ -43,7 +43,7 @@
 	],
 	"metadata_groups": [1,2],
 	"tmp_dir": "/tmp",
-	"hostname": "http://192.168.1.45:8080",
+	"hostname": "http://192.168.1.45:8100",
 	"chunk_duration_sec": 5
     }
 }
