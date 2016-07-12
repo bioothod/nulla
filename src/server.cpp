@@ -51,6 +51,9 @@ public:
 	virtual void on_request(const thevoid::http_request &req, const boost::asio::const_buffer &buffer) {
 		m_playlist = std::shared_ptr<nulla::raw_playlist>(new nulla::raw_playlist());
 
+		m_xreq = req.request_id();
+		m_trace = req.trace_bit();
+
 		elliptics::error_info err = parse_manifest_request(buffer);
 		if (err) {
 			NLOG_ERROR("url: %s: could not parse manifest request: %.*s, error: %s [%d]",
@@ -81,6 +84,8 @@ public:
 
 private:
 	nulla::playlist_t m_playlist;
+	uint64_t m_xreq = 0;
+	int m_trace = 0;
 
 	elliptics::error_info update_periods(nulla::representation &repr) {
 		repr.duration_msec = 0;
@@ -401,6 +406,9 @@ private:
 
 			auto session = b->session();
 			session.set_filter(elliptics::filters::positive);
+			session.set_trace_id(m_xreq);
+			session.set_trace_bit(m_trace);
+
 			session.read_data(tr.meta_key, 0, 0).connect(
 				std::bind(&on_dash_manifest_base::on_read_meta,
 					this->shared_from_this(), repr.id, idx,
@@ -486,6 +494,9 @@ class on_dash_stream_base : public thevoid::simple_request_stream<Server>, publi
 public:
 	void on_request(const thevoid::http_request &req, const boost::asio::const_buffer &buffer) {
 		(void) buffer;
+
+		m_xreq = req.request_id();
+		m_trace = req.trace_bit();
 
 		// url format: http://host[:port]/prefix/playlist_id/repr/type
 		// where @prefix matches thevoid handler name registered in the @Server
@@ -770,6 +781,8 @@ public:
 
 		auto session = b->session();
 		session.set_filter(elliptics::filters::positive);
+		session.set_trace_id(m_xreq);
+		session.set_trace_bit(m_trace);
 		session.read_data(tr.key, start_offset, end_offset - start_offset).connect(
 				std::bind(&on_dash_stream_base::on_read_samples,
 					this->shared_from_this(), opt, std::cref(tr), std::placeholders::_1, std::placeholders::_2));
@@ -778,6 +791,8 @@ public:
 
 private:
 	nulla::playlist_t m_playlist;
+	uint64_t m_xreq = 0;
+	int m_trace = 0;
 };
 
 template <typename Server>
