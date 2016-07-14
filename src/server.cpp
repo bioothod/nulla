@@ -143,33 +143,24 @@ private:
 		return elliptics::error_info();
 	}
 
-#if 0
-			// period duration has been set to the smallest representation duration,
-			// we have to update all adaptations to be the same lenght
-			BOOST_FOREACH(nulla::adaptation &a, p.adaptations) {
-				BOOST_FOREACH(std::string &id, a.repr_ids) {
-					auto it = m_playlist->repr.find(id);
-					if (it == m_playlist->repr.end())
-						continue;
+	void truncate_duration(nulla::representation &repr) {
+		// period duration has been set to the smallest representation duration,
+		// we have to update all adaptations to be the same lenght
+		long duration_msec = m_playlist->duration_msec;
+		repr.duration_msec = duration_msec;
 
-					long duration_msec = p.duration_msec;
-					nulla::representation &repr = it->second;
-					repr.duration_msec = duration_msec;
-
-					BOOST_FOREACH(nulla::track_request &tr, repr.tracks) {
-						if (duration_msec < 0) {
-							tr.duration_msec = 0;
-							continue;
-						}
-
-						duration_msec -= tr.duration_msec;
-						if (duration_msec < 0) {
-							tr.duration_msec += duration_msec;
-						}
-					}
-				}
+		for (auto &tr : repr.tracks) {
+			if (duration_msec < 0) {
+				tr.duration_msec = 0;
+				continue;
 			}
-#endif
+
+			duration_msec -= tr.duration_msec;
+			if (duration_msec < 0) {
+				tr.duration_msec += duration_msec;
+			}
+		}
+	}
 
 	elliptics::error_info check_and_send_manifest() {
 		elliptics::error_info err;
@@ -180,6 +171,10 @@ private:
 			err = update_periods(repr_pair.second);
 			if (err)
 				return err;
+		}
+
+		for (auto &repr_pair: m_playlist->repr) {
+			truncate_duration(repr_pair.second);
 		}
 
 		m_playlist->id = this->server()->store_playlist(m_playlist);
@@ -722,8 +717,7 @@ public:
 		reply.headers().set_content_length(movie_data.size());
 		reply.headers().set("Access-Control-Allow-Origin", "*");
 
-		this->send_headers(std::move(reply), std::move(movie_data),
-				std::bind(&on_dash_stream_base::close, this->shared_from_this(), std::placeholders::_1));
+		this->send_reply(std::move(reply), std::move(movie_data));
 	}
 
 	void request_track_data(const nulla::track_request &tr, long number) {
