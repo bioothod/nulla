@@ -12,6 +12,7 @@ No need to upload multiple files or create multiple file edits to implement muxi
 
 To allow muxing all files in the stream must be encoded the same way
 (to mux multiple streams codecs must be the same, level/profile info can change).
+To transcode input files and upload them into Elliptics you can use [Nullx](https://github.com/bioothod/nullx) service.
 
 Here is 5-seconds muxing (5 seconds of the first video, then 5 second of the second,
 then next 5 seconds from the first and so on) example, control json will look like this:
